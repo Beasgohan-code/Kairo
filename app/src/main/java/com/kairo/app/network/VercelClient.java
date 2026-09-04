@@ -23,6 +23,7 @@ public final class VercelClient {
 
     public interface Callback {
         void onSuccess(String result);
+
         void onError(String message);
     }
 
@@ -56,27 +57,26 @@ public final class VercelClient {
         run(() -> {
             String path = "/v6/deployments?limit=20";
             if (teamId != null && !teamId.trim().isEmpty()) path += "&teamId=" + encode(teamId.trim());
-            if (project != null && !project.trim().isEmpty()) path += "&projectId=" + encode(project.trim());
+            if (project != null && !project.trim().isEmpty()) {
+                path += "&projectId=" + encode(project.trim());
+            }
             JSONObject root = requestJson(token, baseUrl, path, "GET", null);
             JSONArray deployments = root.optJSONArray("deployments");
-            if (deployments == null || deployments.length() == 0) return "No recent deployments found.";
+            if (deployments == null || deployments.length() == 0) return "No deployments found.";
             StringBuilder output = new StringBuilder("Recent deployments\n");
             for (int index = 0; index < deployments.length(); index++) {
-                JSONObject deployment = deployments.optJSONObject(index);
-                if (deployment == null) continue;
-                String state = deployment.optString("state", deployment.optString("readyState", "unknown"));
-                String url = deployment.optString("url", "");
-                output.append("• ").append(deployment.optString("name", "deployment"))
-                        .append("  ·  ").append(state)
-                        .append("  ·  ").append(deployment.optString("createdAt", "time unavailable"));
-                if (!url.isEmpty()) output.append("\n  https://").append(url);
+                JSONObject d = deployments.optJSONObject(index);
+                if (d == null) continue;
+                output.append("• ").append(d.optString("name", d.optString("id", "deployment")))
+                        .append("  ·  ").append(d.optString("state", d.optString("readyState", "?")));
+                String url = d.optString("url", "");
+                if (!url.isEmpty()) output.append("  ·  https://").append(url);
                 output.append('\n');
             }
             return output.toString().trim();
         }, callback);
     }
 
-    /** Create a deployment from an already connected Git repository. */
     public void createDeployment(
             String token,
             String baseUrl,
@@ -152,7 +152,7 @@ public final class VercelClient {
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.2");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.8");
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
@@ -168,7 +168,9 @@ public final class VercelClient {
                 String detail = response;
                 try {
                     detail = new JSONObject(response).optString("error", response);
-                    if (detail.startsWith("{")) detail = new JSONObject(detail).optString("message", detail);
+                    if (detail.startsWith("{")) {
+                        detail = new JSONObject(detail).optString("message", detail);
+                    }
                 } catch (Exception ignored) {
                 }
                 throw new IllegalStateException("Vercel HTTP " + status + ": " + detail);

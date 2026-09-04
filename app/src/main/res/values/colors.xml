@@ -1,16 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="kairo_background">#101114</color>
-    <color name="kairo_surface">#17191E</color>
-    <color name="kairo_surface_raised">#20232A</color>
-    <color name="kairo_surface_soft">#252832</color>
-    <color name="kairo_border">#30343E</color>
-    <color name="kairo_text">#F1F0EC</color>
-    <color name="kairo_text_secondary">#A8A9B2</color>
-    <color name="kairo_text_muted">#72747F</color>
-    <color name="kairo_lavender">#C7B9FF</color>
-    <color name="kairo_lavender_dark">#8B78E6</color>
-    <color name="kairo_mint">#9BE4C3</color>
-    <color name="kairo_amber">#E8C27A</color>
-    <color name="kairo_red">#F38E8E</color>
+    <!-- Deep, calm Claude-inspired dark base -->
+    <color name="kairo_background">#0D0E11</color>
+    <color name="kairo_surface">#15171C</color>
+    <color name="kairo_surface_raised">#1C1F26</color>
+    <color name="kairo_surface_soft">#23262F</color>
+    <color name="kairo_border">#2E323C</color>
+
+    <!-- Text hierarchy -->
+    <color name="kairo_text">#F4F3EF</color>
+    <color name="kairo_text_secondary">#A3A5AF</color>
+    <color name="kairo_text_muted">#6B6E79</color>
+
+    <!-- Accents – soft lavender (Claude-like) + supporting -->
+    <color name="kairo_lavender">#C9BBFF</color>
+    <color name="kairo_lavender_dark">#8F7CE8</color>
+    <color name="kairo_lavender_soft">#2A2438</color>
+    <color name="kairo_mint">#8FDFC0</color>
+    <color name="kairo_amber">#E6C07A</color>
+    <color name="kairo_red">#F08A8A</color>
+    <color name="kairo_user_bubble">#3A3158</color>
+    <color name="kairo_assistant_soft">#181B22</color>
 </resources>

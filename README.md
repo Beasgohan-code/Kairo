@@ -1,28 +1,29 @@
 # Kairo
 
-Kairo is a provider-neutral Android AI workspace written in Java. It combines a calm Claude-inspired chat surface with a live streaming model catalog, local artifacts, explicit service connectors, and guarded agent tools.
+Kairo is a provider-neutral Android AI workspace written in Java. It combines a calm, modern modern assistant-inspired chat surface with live token streaming (caret + speed indicator), an dual-model dual-model comparison, local artifacts, explicit service connectors, and guarded agent tools.
 
 > Kairo is a client: prompts and API traffic go directly from the device to the provider or endpoint selected by the user. It is not an API-key proxy.
 
 ## Included
 
-- **Chat workspace** with a Claude-style conversation drawer, local searchable thread history, automatic thread titles, rename/share/clear actions, copy and retry controls, starter prompts, and a focused dark UI.
-- **Responsive composer** with live streaming token output, a live elapsed/character processing indicator, stop-generation, markdown/code styling, bounded text-file and inline image attachments, vision-capability hints, voice input, model selection, tool shortcuts, response modes, Fast/Balanced/Deep reasoning controls, Hermes-style plan/process/review handoff, and a 32k prompt guardrail.
+- **Chat workspace** with a modern modern assistant-inspired dark UI, refined message bubbles, model badges, conversation drawer, searchable thread history, automatic titles, rename/share/clear, copy/retry, and starter prompts.
+- **Responsive composer + live streaming** with real-time token output, blinking streaming caret, elapsed time + chars/sec indicator, stop-generation, improved markdown (bold/italic/headers/code), bounded attachments, vision hints, voice input, model selection, tool shortcuts, Fast/Balanced/Deep reasoning, Hermes plan/process/review, and a 32k prompt guardrail.
 - **Artifacts workspace** for creating private files, generating code through the AI composer, saving generated code blocks, editing in a monospace preview, copying, sharing, exporting, deleting, and bounded safe storage. Language presets cover JavaScript, TypeScript, Kotlin, Java, Linux shell, Python, HTML, CSS, and JSON.
-- **Provider adapters** for OpenRouter, Groq, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama. Groq has a one-tap Fast chat route, while Kimi / Moonshot includes candidate deep-reasoning models and uses the same live SSE/stop-generation experience.
-- **Web search and Arena mode** with Brave Search plus a no-key DuckDuckGo fallback, user-selected source insertion, and two-model parallel streaming comparisons.
+- **Provider adapters** for OpenRouter, fast-provider, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama. fast-provider has a one-tap Fast chat route, while Kimi / Moonshot includes candidate deep-reasoning models and uses the same live SSE/stop-generation experience.
+- **Web search and dual-model mode** with Brave Search + DuckDuckGo fallback, user-selected source insertion, and polished dual-panel live streaming comparisons (A/B badges, independent stop, copy & save).
 - **Connectors workspace** for GitHub, Vercel, n8n, Slack, Notion, Linear, Supabase, and Discord webhooks. Inspect GitHub context, review Vercel projects/deployments, create a confirmed Git-backed deployment, inspect n8n workflows/executions, search Notion or Linear issues, preview Supabase rows, or send reviewed team updates.
 - **Device setup and provider login** with a private installation id, local pairing label, device profile, setup checklist, and official browser sign-in links. Kairo never receives provider passwords and stores only encrypted tokens.
 - **Secure API key setup** using an AES/GCM key held by Android Keystore. Existing secrets are never displayed back in Settings. Pasting a recognizable provider credential into Chat triggers a local detector, pauses sending, shows only a masked preview, and offers an explicit save-and-remove action; credentials are never saved silently or sent to the model.
 - **Memory vault** for user-approved profile, preference, project, instruction, and note context. Memories are encrypted with Android Keystore, bounded before provider requests, editable/deletable from the vault, never inferred into storage without review, and reject recognizable API credentials.
 - **Curated model catalog** with free-route / free-tier notes, local Ollama models, and a 50+ entry NVIDIA candidate index. NVIDIA candidates are deliberately labeled as candidates—not free or guaranteed—while the NVIDIA live refresh uses the official `/v1/models` response for the currently saved key, account, region, credits, quotas, and endpoint availability. Live snapshots replace stale IDs.
 - **Agent workspace** with Code, Hermes Orchestrator, GitHub, CLI, Safe Phone, Research, Artifact, Browser, Automation, and Arena agents. Hermes makes Plan → Process → Review → Handoff visible and keeps the user in the loop. Skills are configurable in Settings and are injected from a fixed, reviewable catalog; they shape responses but never grant a tool or device permission. An explicit tool registry documents each capability, whether it reads or writes, and whether it uses the network; tools are not silently granted to a model.
-- **GitHub tools** for repository summaries, open issues, README pulls, confirmed single-file pushes through the Contents API, and confirmed pull-request creation.
+- **GitHub tools** for repository summaries, open issues, README pulls, confirmed single-file pushes through the Contents API, confirmed pull-request creation, listing PRs, and inspecting GitHub Actions workflow runs.
+- **Advanced tools (v0.2)** including local memory search, artifact unified diff, provider health probes, and redacted conversation export.
 - **Sandbox console** with an allow-list (`pwd`, `ls`, `git status`, `git diff --stat`, branch/log commands, `uname -a`, and `id`) and runtime discovery. It is explicitly an Android app-process toolbox rather than a full Linux VM: chaining, redirects, pipes, substitution, root access, mutation, package installs, and arbitrary commands are blocked. Full Ubuntu/Docker is not bundled.
 - **Artifact run/check** with a review prompt, private temporary directory, direct runtime invocation when Node, Deno, Python, Java, or Kotlin tooling exists, ten-second timeout, bounded output, and shell syntax checking only. It never downloads runtimes and clearly reports when Android lacks a requested compiler/runtime.
 - **Safe phone assistant** with a Panda-like, review-first screen for opening the browser, Android Settings, Wi-Fi settings, camera, or dialer. Actions use visible Android intents and never silently call, message, read private apps, root, or control the device in the background.
 - **AI action menu** with one-tap prompts for improving writing, explaining code, reviewing bugs/security, generating tests, converting to TypeScript or Kotlin, extracting JSON, summarizing a thread, and creating complete file artifacts.
-- **GitHub Actions** templates in `docs/github-actions/` that run unit tests and upload `app-debug.apk` for every push, pull request, or manual dispatch; a separate release template assembles the release artifact on tags/manual runs. The active `.github/workflows/` copies are withheld from this publish branch until the GitHub App receives `workflows` permission.
+- **Professional CI/CD** with active GitHub Actions workflows (`.github/workflows/`): full Android CI (unit tests + debug APK), release pipeline that can publish GitHub Releases, CodeQL security analysis, Dependabot for Actions & Gradle, plus secret-pattern scanning and quality gates. Templates remain available under `docs/github-actions/` for reference.
 
 ## Build locally
 
@@ -64,9 +65,17 @@ app/src/main/java/com/kairo/app/
 ├── core/                          # Keystore, memory vault, device profile, preferences, history, and artifacts
 ├── data/                          # model, chat, artifact, agent, and connector catalog types
 └── network/                       # provider, search, GitHub, Vercel, n8n, and service REST clients
-docs/github-actions/android.yml      # publishable CI template
-docs/github-actions/release.yml      # publishable release template
-.github/workflows/                  # local activation copies; requires workflows permission
+.github/
+├── workflows/
+│   ├── android.yml                # CI: unit tests + debug APK + quality gates
+│   ├── release.yml                # Release APK + GitHub Release on tags
+│   └── codeql.yml                 # CodeQL security analysis
+└── dependabot.yml                 # Automated dependency updates
+docs/github-actions/               # Reference templates
+LICENSE                            # MIT
+CONTRIBUTING.md                    # Contribution guide
+SECURITY.md                        # Security policy & disclosure
+CHANGELOG.md                       # Version history
 ```
 
 ## Security notes

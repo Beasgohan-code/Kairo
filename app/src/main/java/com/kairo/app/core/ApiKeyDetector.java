@@ -8,6 +8,10 @@ public final class ApiKeyDetector {
     private static final Rule[] RULES = {
             new Rule("github", "GitHub", Pattern.compile("\\b(ghp_[A-Za-z0-9]{20,})\\b")),
             new Rule("github", "GitHub", Pattern.compile("\\b(github_pat_[A-Za-z0-9_]{20,})\\b")),
+            new Rule("github", "GitHub", Pattern.compile("\\b(gho_[A-Za-z0-9]{20,})\\b")),
+            new Rule("github", "GitHub", Pattern.compile("\\b(ghu_[A-Za-z0-9]{20,})\\b")),
+            new Rule("github", "GitHub", Pattern.compile("\\b(ghs_[A-Za-z0-9]{20,})\\b")),
+            new Rule("github", "GitHub", Pattern.compile("\\b(ghr_[A-Za-z0-9]{20,})\\b")),
             new Rule("anthropic", "Anthropic", Pattern.compile("\\b(sk-ant-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("openrouter", "OpenRouter", Pattern.compile("\\b(sk-or-v1-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("groq", "Groq", Pattern.compile("\\b(gsk_[A-Za-z0-9_-]{20,})\\b")),

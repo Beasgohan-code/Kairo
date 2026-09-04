@@ -37,6 +37,7 @@ public final class AgentOrchestrator {
     public boolean supports(String agentId) {
         return "code".equals(agentId)
                 || "hermes".equals(agentId)
+                || "devloop".equals(agentId)
                 || "github".equals(agentId)
                 || "cli".equals(agentId)
                 || "phone".equals(agentId)

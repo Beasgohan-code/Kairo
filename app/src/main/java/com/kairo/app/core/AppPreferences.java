@@ -30,6 +30,13 @@ public final class AppPreferences {
     private static final String KEY_MAX_OUTPUT_TOKENS = "generation_max_output_tokens";
     private static final String KEY_RESPONSE_STYLE = "generation_response_style";
     private static final String KEY_REASONING_MODE = "generation_reasoning_mode";
+    private static final String KEY_THEME_MODE = "ui_theme_mode"; // "dark" | "light"
+    private static final String KEY_SYSTEM_INSTRUCTIONS = "system_project_instructions";
+    private static final String KEY_VOICE_CONTINUOUS = "voice_continuous_mode";
+    private static final String KEY_APP_LOCK = "security_app_lock_enabled";
+    private static final String KEY_ONBOARDING_DONE = "onboarding_done";
+    private static final String KEY_LARGE_TEXT = "accessibility_large_text";
+    private static final String KEY_PINNED_SESSIONS = "pinned_session_ids";
     private static final String SKILL_SEPARATOR = "\u001f";
 
     private final SharedPreferences preferences;
@@ -212,6 +219,92 @@ public final class AppPreferences {
             value = "balanced";
         }
         preferences.edit().putString(KEY_REASONING_MODE, value).apply();
+    }
+
+    public String getThemeMode() {
+        return preferences.getString(KEY_THEME_MODE, "dark");
+    }
+
+    public boolean isLightTheme() {
+        return "light".equals(getThemeMode());
+    }
+
+    public void setThemeMode(String themeMode) {
+        String value = "light".equalsIgnoreCase(themeMode) ? "light" : "dark";
+        preferences.edit().putString(KEY_THEME_MODE, value).apply();
+    }
+
+
+    public String getSystemInstructions() {
+        return preferences.getString(KEY_SYSTEM_INSTRUCTIONS, "");
+    }
+
+    public void setSystemInstructions(String value) {
+        preferences.edit().putString(KEY_SYSTEM_INSTRUCTIONS, value == null ? "" : value.trim()).apply();
+    }
+
+    public boolean isVoiceContinuous() {
+        return preferences.getBoolean(KEY_VOICE_CONTINUOUS, false);
+    }
+
+    public void setVoiceContinuous(boolean enabled) {
+        preferences.edit().putBoolean(KEY_VOICE_CONTINUOUS, enabled).apply();
+    }
+
+    public boolean isAppLockEnabled() {
+        return preferences.getBoolean(KEY_APP_LOCK, false);
+    }
+
+    public void setAppLockEnabled(boolean enabled) {
+        preferences.edit().putBoolean(KEY_APP_LOCK, enabled).apply();
+    }
+
+
+    public boolean isOnboardingDone() {
+        return preferences.getBoolean(KEY_ONBOARDING_DONE, false);
+    }
+
+    public void setOnboardingDone(boolean done) {
+        preferences.edit().putBoolean(KEY_ONBOARDING_DONE, done).apply();
+    }
+
+    public boolean isLargeText() {
+        return preferences.getBoolean(KEY_LARGE_TEXT, false);
+    }
+
+    public void setLargeText(boolean enabled) {
+        preferences.edit().putBoolean(KEY_LARGE_TEXT, enabled).apply();
+    }
+
+    public java.util.Set<String> getPinnedSessionIds() {
+        String raw = preferences.getString(KEY_PINNED_SESSIONS, "");
+        java.util.Set<String> set = new java.util.LinkedHashSet<>();
+        if (raw != null && !raw.isEmpty()) {
+            for (String p : raw.split("\u001f")) {
+                if (!p.isEmpty()) set.add(p);
+            }
+        }
+        return set;
+    }
+
+    public void setPinnedSessionIds(java.util.Set<String> ids) {
+        StringBuilder sb = new StringBuilder();
+        if (ids != null) {
+            for (String id : ids) {
+                if (id == null || id.isEmpty()) continue;
+                if (sb.length() > 0) sb.append('\u001f');
+                sb.append(id);
+            }
+        }
+        preferences.edit().putString(KEY_PINNED_SESSIONS, sb.toString()).apply();
+    }
+
+    public void togglePinnedSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return;
+        java.util.Set<String> set = getPinnedSessionIds();
+        if (set.contains(sessionId)) set.remove(sessionId);
+        else set.add(sessionId);
+        setPinnedSessionIds(set);
     }
 
     private String normalizeUrl(String value) {

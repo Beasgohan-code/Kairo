@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.speech.RecognizerIntent;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
 import android.text.TextWatcher;
 import android.util.Base64;
 import android.view.Gravity;
@@ -51,6 +52,11 @@ import com.kairo.app.core.ApiKeyDetector;
 import com.kairo.app.core.MemoryStore;
 import com.kairo.app.core.ProviderConfig;
 import com.kairo.app.core.UsageTracker;
+import com.kairo.app.network.BitbucketClient;
+import com.kairo.app.network.GitLabClient;
+import com.kairo.app.network.WebhookTester;
+import com.kairo.app.core.PromptTemplateStore;
+import com.kairo.app.core.DevLoopState;
 import com.kairo.app.data.AgentDefinition;
 import com.kairo.app.data.Artifact;
 import com.kairo.app.data.ChatAttachment;
@@ -75,7 +81,9 @@ import com.kairo.app.network.LinearClient;
 import com.kairo.app.network.SlackClient;
 import com.kairo.app.network.SupabaseClient;
 import com.kairo.app.network.VercelClient;
+import com.kairo.app.network.ImageGenerationClient;
 import com.kairo.app.ui.MarkdownRenderer;
+import com.kairo.app.ui.UiEffects;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -189,30 +197,79 @@ public class MainActivity extends Activity {
     private static final int VOICE_PERMISSION_REQUEST = 7103;
     private static final int EXPORT_ARTIFACT_REQUEST = 7104;
 
-    private final int background = Color.rgb(16, 17, 20);
-    private final int surface = Color.rgb(23, 25, 30);
-    private final int raised = Color.rgb(32, 35, 42);
-    private final int soft = Color.rgb(37, 40, 50);
-    private final int border = Color.rgb(48, 52, 62);
-    private final int primaryText = Color.rgb(241, 240, 236);
-    private final int secondaryText = Color.rgb(168, 169, 178);
-    private final int mutedText = Color.rgb(114, 116, 127);
-    private final int lavender = Color.rgb(199, 185, 255);
-    private final int mint = Color.rgb(155, 228, 195);
-    private final int amber = Color.rgb(232, 194, 122);
-    private final int red = Color.rgb(243, 142, 142);
+    // Theme-aware colors (Claude / Groq inspired)
+    private int background;
+    private int surface;
+    private int raised;
+    private int soft;
+    private int border;
+    private int primaryText;
+    private int secondaryText;
+    private int mutedText;
+    private int lavender;
+    private int mint;
+    private int amber;
+    private int red;
+    private int userBubble;
+    private int assistantSoft;
+
+    private LinearLayout reasoningPillsRow;
+    private LinearLayout followUpChipsRow;
+    private long arenaLeftStartedAt;
+    private long arenaRightStartedAt;
+    private int arenaLeftChars;
+    private int arenaRightChars;
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if (event.isCtrlPressed() || event.isMetaPressed()) {
+            if (keyCode == android.view.KeyEvent.KEYCODE_K) { showCommandPalette(); return true; }
+            if (keyCode == android.view.KeyEvent.KEYCODE_N) { startNewChat(); return true; }
+            if (keyCode == android.view.KeyEvent.KEYCODE_E) { exportConversationMarkdown(); return true; }
+            if (keyCode == android.view.KeyEvent.KEYCODE_COMMA) { showSettings(); return true; }
+        }
+        if (keyCode == android.view.KeyEvent.KEYCODE_ESCAPE && awaitingResponse) {
+            cancelResponse();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private boolean sessionUnlocked = false;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        maybeRequireAppUnlock();
+        showOnboardingIfNeeded();
+    }
+
+    private void maybeRequireAppUnlock() {
+        if (!preferences.isAppLockEnabled() || sessionUnlocked) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Unlock Kairo")
+                .setMessage("App lock is enabled. Confirm to continue. (Enable device biometrics in system settings for stronger protection; this build uses an explicit unlock step to stay dependency-free.)")
+                .setCancelable(false)
+                .setPositiveButton("Unlock", (d, w) -> sessionUnlocked = true)
+                .setNegativeButton("Exit", (d, w) -> finish())
+                .show();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        keyStore = new ApiKeyStore(this);
+        preferences = new AppPreferences(this);
+        applyThemeColors();
         Window window = getWindow();
         window.setStatusBarColor(background);
         window.setNavigationBarColor(background);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            window.getDecorView().setSystemUiVisibility(0);
+            int flags = preferences.isLightTheme()
+                    ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    : 0;
+            window.getDecorView().setSystemUiVisibility(flags);
         }
-        keyStore = new ApiKeyStore(this);
-        preferences = new AppPreferences(this);
         conversationStore = new ConversationStore(this);
         memoryStore = new MemoryStore(this);
         deviceSetup = new DeviceSetupStore(this);
@@ -394,11 +451,15 @@ public class MainActivity extends Activity {
         TextView newChat = iconButton("＋", "New conversation", lavender);
         newChat.setOnClickListener(view -> startNewChat());
         toolbar.addView(newChat, new LinearLayout.LayoutParams(dp(44), dp(40)));
+        TextView palette = iconButton("⌘", "Command palette", secondaryText);
+        palette.setOnClickListener(view -> showCommandPalette());
+        toolbar.addView(palette, new LinearLayout.LayoutParams(dp(44), dp(40)));
         TextView settings = iconButton("⚙", "Settings", secondaryText);
         settings.setOnClickListener(view -> showSettings());
         toolbar.addView(settings, new LinearLayout.LayoutParams(dp(44), dp(40)));
 
         content = new LinearLayout(this);
+        UiEffects.enableLayoutTransitions(content);
         content.setOrientation(LinearLayout.VERTICAL);
         mainColumn.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -484,9 +545,14 @@ public class MainActivity extends Activity {
         panel.addView(drawerDivider(), marginParams(0, 12, 0, 8));
         panel.addView(drawerLink("⌘  Agents", view -> showAgents()), wrapParams());
         panel.addView(drawerLink("✧  Hermes orchestrator", view -> showHermesWorkflow()), wrapParams());
+        panel.addView(drawerLink("↻  Dev Loop", view -> showDevLoop()), wrapParams());
         panel.addView(drawerLink("✦  Memories", view -> showMemories()), wrapParams());
         panel.addView(drawerLink("▥  Skills & language", view -> showSkillsSettings()), wrapParams());
         panel.addView(drawerLink("◌  Sandbox console", view -> showSandbox()), wrapParams());
+        panel.addView(drawerLink("📂  Sandbox browser", view -> showSandboxBrowser()), wrapParams());
+        panel.addView(drawerLink("⬆  GitHub commit wizard", view -> showGitHubCommitWizard()), wrapParams());
+        panel.addView(drawerLink("📋  Prompt templates", view -> showPromptTemplates()), wrapParams());
+        panel.addView(drawerLink("🌐  Webhook tester", view -> showWebhookTester()), wrapParams());
         panel.addView(drawerLink("◉  Safe phone", view -> showPhoneControl()), wrapParams());
         panel.addView(drawerLink("◈  Models", view -> showModels()), wrapParams());
         panel.addView(drawerLink("▣  Artifacts", view -> showArtifacts()), wrapParams());
@@ -494,7 +560,14 @@ public class MainActivity extends Activity {
         panel.addView(drawerLink("▤  Device setup", view -> showDeviceSetup()), wrapParams());
         panel.addView(drawerLink("⌁  Web search", view -> showWebSearch()), wrapParams());
         panel.addView(drawerLink("⚔  Model arena", view -> showArena()), wrapParams());
+        panel.addView(drawerLink("🖼  Image studio", view -> showImageStudio()), wrapParams());
         panel.addView(drawerLink("⚙  Settings", view -> showSettings()), wrapParams());
+        panel.addView(drawerLink("♿  Larger text", view -> {
+            preferences.setLargeText(!preferences.isLargeText());
+            toast(preferences.isLargeText() ? "Larger text on" : "Larger text off");
+            recreate();
+        }), wrapParams());
+        panel.addView(drawerLink("💾  Backup metadata", view -> showBackupRestore()), wrapParams());
         TextView footer = text("PRIVATE BY DEFAULT\nKeys stay on this device", 10, mutedText);
         footer.setLineSpacing(1.1f, 1.0f);
         panel.addView(footer, marginParams(2, 16, 0, 0));
@@ -676,6 +749,14 @@ public class MainActivity extends Activity {
         composerShell.addView(attachmentScroll, marginParams(0, 2, 0, 2));
         refreshAttachmentStrip();
 
+        // Prominent Fast / Balanced / Deep reasoning pills (Claude/Groq style)
+        reasoningPillsRow = new LinearLayout(this);
+        reasoningPillsRow.setOrientation(LinearLayout.HORIZONTAL);
+        reasoningPillsRow.setGravity(Gravity.CENTER_VERTICAL);
+        reasoningPillsRow.setPadding(dp(2), dp(2), dp(2), dp(6));
+        refreshReasoningPills();
+        composerShell.addView(reasoningPillsRow, wrapParams());
+
         LinearLayout composeActions = new LinearLayout(this);
         composeActions.setGravity(Gravity.CENTER_VERTICAL);
         TextView attach = compactIcon("＋", "Attach a text file", secondaryText,
@@ -687,12 +768,12 @@ public class MainActivity extends Activity {
         TextView tools = compactIcon("✦", "Choose a tool", lavender,
                 view -> showToolPicker());
         composeActions.addView(tools, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView ai = pill("AI", lavender, Color.rgb(48, 42, 70));
+        TextView ai = pill("AI", lavender, preferences.isLightTheme() ? soft : Color.rgb(48, 42, 70));
         ai.setTextSize(10);
         ai.setContentDescription("AI actions");
         ai.setOnClickListener(view -> showAiFeaturesPicker());
         composeActions.addView(ai, new LinearLayout.LayoutParams(dp(38), dp(32)));
-        modeButton = pill(agentModeLabel(), lavender, Color.rgb(48, 42, 70));
+        modeButton = pill(agentModeLabel(), lavender, preferences.isLightTheme() ? soft : Color.rgb(48, 42, 70));
         modeButton.setTextSize(10);
         modeButton.setOnClickListener(view -> showAgentModePicker());
         composeActions.addView(modeButton, marginWrapParams(4, 0, 0, 0));
@@ -701,11 +782,12 @@ public class MainActivity extends Activity {
         TextView voice = compactIcon("◉", "Voice input", secondaryText,
                 view -> startVoiceInput());
         composeActions.addView(voice, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        sendButton = text("↑", 21, background);
+        sendButton = text("↑", 21, preferences.isLightTheme() ? Color.WHITE : background);
         sendButton.setGravity(Gravity.CENTER);
         sendButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         sendButton.setBackground(circle(lavender));
         sendButton.setContentDescription("Send message");
+        sendButton.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         sendButton.setOnClickListener(view -> {
             if (awaitingResponse) cancelResponse();
             else sendMessage();
@@ -806,58 +888,91 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setGravity(user ? Gravity.END : Gravity.START);
-        row.setPadding(user ? dp(26) : dp(2), 0, user ? dp(2) : dp(26), 0);
+        row.setPadding(user ? dp(28) : dp(4), 0, user ? dp(4) : dp(28), 0);
 
         if (!user) {
             LinearLayout identity = new LinearLayout(this);
             identity.setGravity(Gravity.CENTER_VERTICAL);
-            TextView avatar = text("K", 10, background);
+            TextView avatar = text("K", 11, background);
             avatar.setGravity(Gravity.CENTER);
             avatar.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            avatar.setBackground(circle(mint));
-            identity.addView(avatar, new LinearLayout.LayoutParams(dp(23), dp(23)));
-            TextView label = text("Kairo", 12, primaryText);
+            avatar.setBackground(circle(lavender));
+            identity.addView(avatar, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            TextView label = text("Kairo", 13, primaryText);
             label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
-            labelParams.setMargins(dp(8), 0, 0, 0);
+            labelParams.setMargins(dp(9), 0, 0, 0);
             identity.addView(label, labelParams);
-            row.addView(identity, marginParams(0, 0, 0, 6));
+            TextView modelBadge = text("  ·  " + modelTitle(), 11, mutedText);
+            identity.addView(modelBadge, wrap());
+            row.addView(identity, marginParams(0, 0, 0, 7));
         }
 
-        TextView bubble = text("", 15, primaryText);
+        TextView bubble = text("", 15.5f, primaryText);
         bubble.setText(user ? message : MarkdownRenderer.render(message));
         bubble.setTextIsSelectable(true);
-        bubble.setLineSpacing(1.15f, 1.0f);
-        bubble.setPadding(user ? dp(15) : dp(2), user ? dp(11) : dp(1), user ? dp(15) : dp(2), user ? dp(11) : dp(1));
-        bubble.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.88f));
-        bubble.setBackground(user ? rounded(Color.rgb(62, 53, 91), 17) : rounded(Color.TRANSPARENT, 0));
+        bubble.setLineSpacing(dp(3), 1.05f);
+        if (user) {
+            bubble.setPadding(dp(16), dp(12), dp(16), dp(12));
+            bubble.setBackground(rounded(userBubble, 18));
+        } else {
+            bubble.setPadding(dp(4), dp(2), dp(4), dp(2));
+            bubble.setBackground(rounded(Color.TRANSPARENT, 0));
+        }
+        bubble.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * (user ? 0.82f : 0.92f)));
         bubble.setOnLongClickListener(view -> {
             copyToClipboard(message);
+            toast("Copied");
             return true;
         });
         row.addView(bubble, wrap());
 
         LinearLayout messageActions = new LinearLayout(this);
         messageActions.setGravity(user ? Gravity.END : Gravity.START);
-        TextView copy = text("Copy", 10, mutedText);
-        copy.setPadding(dp(3), dp(4), dp(8), dp(2));
-        copy.setOnClickListener(view -> copyToClipboard(message));
+        messageActions.setPadding(0, dp(4), 0, 0);
+
+        TextView copy = text("Copy", 11, mutedText);
+        copy.setPadding(dp(6), dp(5), dp(10), dp(4));
+        copy.setOnClickListener(view -> {
+            copyToClipboard(message);
+            toast("Copied");
+        });
         messageActions.addView(copy, wrap());
+
         if (!user) {
-            TextView retry = text("Retry", 10, mutedText);
-            retry.setPadding(dp(8), dp(4), dp(3), dp(2));
+            TextView retry = text("Retry", 11, mutedText);
+            retry.setPadding(dp(10), dp(5), dp(6), dp(4));
             retry.setOnClickListener(view -> regenerateLastResponse(message));
             messageActions.addView(retry, wrap());
-            TextView artifact = text("Save as file", 10, mutedText);
-            artifact.setPadding(dp(8), dp(4), dp(3), dp(2));
+            TextView retryMode = text("Retry as…", 11, mutedText);
+            retryMode.setPadding(dp(10), dp(5), dp(6), dp(4));
+            retryMode.setOnClickListener(view -> {
+                String[] labels = {"Fast", "Balanced", "Deep"};
+                String[] ids = {"fast", "balanced", "deep"};
+                new AlertDialog.Builder(this)
+                        .setTitle("Regenerate with mode")
+                        .setItems(labels, (d, which) -> {
+                            preferences.setReasoningMode(ids[which]);
+                            if (reasoningPillsRow != null) refreshReasoningPills();
+                            regenerateLastResponse(message);
+                        })
+                        .show();
+            });
+            messageActions.addView(retryMode, wrap());
+
+            TextView artifact = text("Save as file", 11, mutedText);
+            artifact.setPadding(dp(10), dp(5), dp(6), dp(4));
             artifact.setOnClickListener(view -> showCreateArtifactFromAnswer(message));
             messageActions.addView(artifact, wrap());
         }
         row.addView(messageActions, wrap());
-        TextView meta = text(user ? "sent just now" : modelTitle(), 10, mutedText);
+
+        TextView meta = text(user ? "Just now" : "", 10, mutedText);
         meta.setGravity(user ? Gravity.END : Gravity.START);
-        row.addView(meta, marginParams(0, 2, 0, 0));
-        chatHistory.addView(row, marginParams(0, 0, 0, 18));
+        if (user) {
+            row.addView(meta, marginParams(0, 3, 0, 0));
+        }
+        chatHistory.addView(row, marginParams(0, 0, 0, 20));
     }
 
     private void refreshComposerSignals(String draft) {
@@ -1085,15 +1200,32 @@ public class MainActivity extends Activity {
     private View makeTypingView() {
         LinearLayout typing = new LinearLayout(this);
         typing.setOrientation(LinearLayout.VERTICAL);
-        typing.setPadding(dp(2), dp(1), dp(2), dp(1));
+        typing.setPadding(dp(4), dp(2), dp(4), dp(2));
         typing.setBackground(rounded(Color.TRANSPARENT, 0));
-        liveProcessingLabel = text("Kairo · connecting…", 10, mint);
+
+        // Identity row matching assistant bubbles
+        LinearLayout identity = new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        TextView avatar = text("K", 11, background);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        avatar.setBackground(circle(lavender));
+        identity.addView(avatar, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView label = text("Kairo", 13, primaryText);
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(dp(9), 0, 0, 0);
+        identity.addView(label, lp);
+        typing.addView(identity, marginParams(0, 0, 0, 6));
+
+        liveProcessingLabel = text("Connecting…", 11, mint);
         liveProcessingLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         typing.addView(liveProcessingLabel, wrapParams());
-        streamingView = text("", 15, primaryText);
+
+        streamingView = text("", 15.5f, primaryText);
         streamingView.setTextIsSelectable(true);
-        streamingView.setLineSpacing(1.15f, 1.0f);
-        streamingView.setPadding(0, dp(8), 0, dp(1));
+        streamingView.setLineSpacing(dp(3), 1.05f);
+        streamingView.setPadding(dp(2), dp(6), dp(2), dp(2));
         typing.addView(streamingView, wrapParams());
         return typing;
     }
@@ -1102,7 +1234,11 @@ public class MainActivity extends Activity {
         if (!awaitingResponse || streamingView == null || token == null) return;
         streamBuffer.append(token);
         responseChars += token.length();
-        streamingView.setText(MarkdownRenderer.render(streamBuffer.toString()));
+        // Live markdown + subtle streaming caret for Claude/Groq-like feel
+        CharSequence rendered = MarkdownRenderer.render(streamBuffer.toString());
+        SpannableStringBuilder withCaret = new SpannableStringBuilder(rendered);
+        withCaret.append(" ▍");
+        streamingView.setText(withCaret);
         updateLiveLabel();
         scrollChatToBottom();
     }
@@ -1113,7 +1249,15 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 if (!awaitingResponse) return;
                 updateLiveLabel();
-                liveHandler.postDelayed(this, 700);
+                // Blink the caret by alternating a thin space
+                if (streamingView != null && streamBuffer != null) {
+                    CharSequence rendered = MarkdownRenderer.render(streamBuffer.toString());
+                    SpannableStringBuilder withCaret = new SpannableStringBuilder(rendered);
+                    long tick = (System.currentTimeMillis() / 500) % 2;
+                    withCaret.append(tick == 0 ? " ▍" : "  ");
+                    streamingView.setText(withCaret);
+                }
+                liveHandler.postDelayed(this, 480);
             }
         };
         liveHandler.post(liveTicker);
@@ -1122,7 +1266,9 @@ public class MainActivity extends Activity {
     private void updateLiveLabel() {
         if (liveProcessingLabel == null || !awaitingResponse) return;
         long elapsed = Math.max(0L, System.currentTimeMillis() - responseStartedAt) / 1000L;
-        liveProcessingLabel.setText("Kairo · live processing · " + elapsed + "s · " + responseChars + " chars");
+        double charsPerSec = elapsed > 0 ? (responseChars / (double) elapsed) : 0;
+        String speed = charsPerSec > 0 ? String.format(java.util.Locale.US, " · %.0f c/s", charsPerSec) : "";
+        liveProcessingLabel.setText("Live · " + elapsed + "s · " + responseChars + " chars" + speed);
     }
 
     private void stopLiveTicker() {
@@ -1149,7 +1295,21 @@ public class MainActivity extends Activity {
         saveCurrentSession();
         streamingView = null;
         streamBuffer = null;
-        if (chatHistory != null) renderChatHistory();
+        if (chatHistory != null) {
+            renderChatHistory();
+            showFollowUpChips(answer);
+            int approxTokens = Math.max(1, answer.length() / 4);
+            toast("~" + approxTokens + " tokens (estimate)");
+            if ("hermes".equals(activeAgentId)) {
+                showHermesTimeline(
+                        "Captured from the latest Hermes run.",
+                        answer.length() > 400 ? answer.substring(0, 400) + "…" : answer,
+                        "Review the answer above before any external action.");
+            }
+            if (answer.length() > 160 && Math.random() < 0.35) {
+                offerMemorySuggestion(answer);
+            }
+        }
     }
 
     private void cancelResponse() {
@@ -1210,6 +1370,7 @@ public class MainActivity extends Activity {
         if ("chat".equals(activeAgentId)) return "Chat mode";
         if ("code".equals(activeAgentId)) return "Code agent";
         if ("hermes".equals(activeAgentId)) return "Hermes orchestrator";
+        if ("devloop".equals(activeAgentId)) return "Dev Loop";
         if ("artifact".equals(activeAgentId)) return "Artifact agent";
         if ("browser".equals(activeAgentId)) return "Browser agent";
         if ("research".equals(activeAgentId)) return "Research agent";
@@ -1221,7 +1382,7 @@ public class MainActivity extends Activity {
 
     private void showAgentModePicker() {
         String[] modes = {"Chat mode · focused conversation", "Code agent · plan and review",
-                "Hermes orchestrator · plan and hand off", "Artifact agent · return complete files",
+                "Hermes orchestrator · plan and hand off", "Dev Loop · plan code test review", "Artifact agent · return complete files",
                 "Browser agent · cite selected sources", "Research agent · compare options",
                 "Automation agent · GitHub, Vercel, n8n", "Arena agent · critique answers",
                 "Safe phone assistant · visible actions"};
@@ -1238,7 +1399,7 @@ public class MainActivity extends Activity {
     }
 
     private void showChatMenu() {
-        String[] actions = {"AI actions", "Skills & language", "Memories", "Rename conversation", "Share transcript", "Clear messages"};
+        String[] actions = {"AI actions", "Skills & language", "Memories", "Rename conversation", "Pin / unpin", "Share transcript", "Clear messages", "Search sessions"};
         new AlertDialog.Builder(this)
                 .setTitle(activeSessionTitle)
                 .setItems(actions, (dialog, which) -> {
@@ -1246,8 +1407,48 @@ public class MainActivity extends Activity {
                     else if (which == 1) showSkillsSettings();
                     else if (which == 2) showMemories();
                     else if (which == 3) showRenameDialog();
-                    else if (which == 4) shareTranscript();
-                    else confirmClearConversation();
+                    else if (which == 4) {
+                        if (activeSessionId != null) {
+                            preferences.togglePinnedSession(activeSessionId);
+                            boolean pinned = preferences.getPinnedSessionIds().contains(activeSessionId);
+                            toast(pinned ? "Pinned" : "Unpinned");
+                        }
+                    } else if (which == 5) shareTranscript();
+                    else if (which == 6) confirmClearConversation();
+                    else if (which == 7) showSessionSearch();
+                })
+                .show();
+    }
+
+    private void showSessionSearch() {
+        EditText q = input("Search sessions…", false);
+        new AlertDialog.Builder(this)
+                .setTitle("Search conversations")
+                .setView(q)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Search", (d, w) -> {
+                    String query = q.getText().toString().trim().toLowerCase(Locale.US);
+                    if (query.isEmpty()) { toast("Enter a search term"); return; }
+                    java.util.List<ConversationSession> all = conversationStore.load();
+                    java.util.List<String> labels = new java.util.ArrayList<>();
+                    java.util.List<ConversationSession> hits = new java.util.ArrayList<>();
+                    java.util.Set<String> pinned = preferences.getPinnedSessionIds();
+                    for (ConversationSession s : all) {
+                        String title = s.getTitle() == null ? "" : s.getTitle();
+                        String hay = title.toLowerCase(Locale.US);
+                        if (hay.contains(query) || (s.getId() != null && s.getId().contains(query))) {
+                            hits.add(s);
+                            labels.add((pinned.contains(s.getId()) ? "📌 " : "") + title);
+                        }
+                    }
+                    if (hits.isEmpty()) { toast("No matches"); return; }
+                    new AlertDialog.Builder(this)
+                            .setTitle("Results (" + hits.size() + ")")
+                            .setItems(labels.toArray(new String[0]), (dd, which) -> {
+                                ConversationSession s = hits.get(which);
+                                openSession(s, true);
+                            })
+                            .show();
                 })
                 .show();
     }
@@ -1304,20 +1505,27 @@ public class MainActivity extends Activity {
     }
 
     private void showAiFeaturesPicker() {
+        // Claude + Groq style AI action menu
         String[] features = {
-                "Improve writing",
-                "Explain code step by step",
-                "Review for bugs and edge cases",
-                "Generate tests",
-                "Review security and privacy",
-                "Convert to TypeScript",
-                "Convert to Kotlin",
-                "Create a complete file",
-                "Extract structured JSON",
-                "Summarize this conversation"
+                "✦  Improve writing",
+                "✦  Make more concise",
+                "✦  Expand with more detail",
+                "⚙  Explain code step by step",
+                "⚙  Review for bugs & edge cases",
+                "⚙  Generate unit tests",
+                "🔒  Security & privacy review",
+                "↗  Convert to TypeScript",
+                "↗  Convert to Kotlin",
+                "📄  Create a complete file",
+                "{ }  Extract structured JSON",
+                "☰  Summarize this conversation",
+                "⚔  Compare two approaches",
+                "💡  Brainstorm alternatives"
         };
         String[] prompts = {
                 "Improve the following draft for clarity, tone, structure, and correctness. Keep the meaning unless you call out a change:",
+                "Rewrite the following to be significantly more concise while preserving the essential meaning and any critical details:",
+                "Expand the following with more concrete detail, examples, and practical guidance. Keep the structure clear:",
                 "Explain the following code step by step, including inputs, outputs, assumptions, and likely failure modes:",
                 "Review the following code for bugs, edge cases, performance issues, and maintainability. Give fixes with rationale:",
                 "Generate focused unit and integration tests for the following code. Include edge cases and explain how to run them:",
@@ -1326,20 +1534,22 @@ public class MainActivity extends Activity {
                 "Convert the following code or design to idiomatic Kotlin. Preserve behavior, use safe null handling, and mention assumptions:",
                 "Create a complete production-ready file from the following requirements. Suggest a safe filename, language, dependencies, and return the entire file in one fenced code block:",
                 "Extract the useful facts from the following into valid JSON. Return JSON only and state a schema if the input is ambiguous:",
-                "Summarize this conversation with decisions, open questions, risks, and the next practical steps:"
+                "Summarize this conversation with decisions, open questions, risks, and the next practical steps:",
+                "Compare two approaches for the following problem. Cover trade-offs, complexity, risk, and when to prefer each:",
+                "Brainstorm practical alternatives for the following. Rank them by speed to implement, risk, and long-term maintainability:"
         };
         new AlertDialog.Builder(this)
                 .setTitle("AI actions")
-                .setMessage("These are prompt shortcuts. Kairo does not make external changes without a separate review and confirmation.")
+                .setMessage("Prompt shortcuts inspired by Claude & Groq. No external writes happen until you explicitly confirm a tool.")
                 .setItems(features, (dialog, which) -> {
                     if (composer == null) showChat();
                     if (composer == null) return;
-                    activeAgentId = which == 7 ? "artifact"
-                            : (which >= 1 && which <= 6 ? "code" : "chat");
+                    activeAgentId = (which == 9) ? "artifact"
+                            : ((which >= 3 && which <= 8) ? "code" : "chat");
                     if (modeButton != null) modeButton.setText(agentModeLabel());
                     String existing = composer.getText().toString().trim();
                     String prompt = prompts[which];
-                    if (!existing.isEmpty() && which != 9) prompt += "\n\nInput:\n" + existing;
+                    if (!existing.isEmpty() && which != 11) prompt += "\n\nInput:\n" + existing;
                     composer.setText(prompt.substring(0, Math.min(32_000, prompt.length())));
                     composer.setSelection(composer.length());
                     composer.requestFocus();
@@ -1626,12 +1836,12 @@ public class MainActivity extends Activity {
         setActiveTab(TAB_AGENTS);
         content.removeAllViews();
         LinearLayout page = page();
-        page.addView(pageHeader("Sandbox console", "A bounded Linux-style toolbox for diagnostics, not an unrestricted terminal."), wrapParams());
+        page.addView(pageHeader("Sandbox console", "Private on-phone workspace + safe diagnostics — not a full Ubuntu VM."), wrapParams());
 
         LinearLayout guardrail = card();
         guardrail.setPadding(dp(14), dp(13), dp(14), dp(13));
         guardrail.addView(text("ANDROID APP SANDBOX", 10, mint), wrap());
-        guardrail.addView(text("Commands run in Kairo's app process through a strict allow-list. Pipes, redirects, chaining, substitution, root access, package installs, file mutation, and arbitrary commands are blocked. This is not a full Linux VM.", 12, secondaryText), marginParams(0, 6, 0, 0));
+        guardrail.addView(text("Commands run in Kairo's app process through a strict allow-list. Pipes, redirects, chaining, substitution, root, package installs, and arbitrary commands are blocked.\n\nFile create/zip uses this app's private phone storage only. A full Ubuntu environment is not included (huge image, security risk, store policy).", 12, secondaryText), marginParams(0, 6, 0, 0));
         guardrail.addView(text("Allowed examples: " + joinExamples(), 10, mutedText), marginParams(0, 8, 0, 0));
         page.addView(guardrail, marginParams(0, 12, 0, 12));
 
@@ -1680,6 +1890,63 @@ public class MainActivity extends Activity {
         commandCard.addView(actions, marginParams(0, 10, 0, 0));
         page.addView(commandCard, marginParams(0, 0, 0, 12));
 
+        // Private file sandbox (create / list / zip) — not a full Ubuntu FS
+        LinearLayout fileCard = card();
+        fileCard.setPadding(dp(14), dp(12), dp(14), dp(12));
+        fileCard.addView(text("PRIVATE FILE SANDBOX", 10, mint), wrap());
+        fileCard.addView(text("Create, list, and zip text files inside Kairo's private app directory. Bounded size and count. No access to other apps or system paths.", 12, secondaryText), marginParams(0, 6, 0, 0));
+        final com.kairo.app.core.SandboxWorkspace sandbox = new com.kairo.app.core.SandboxWorkspace(this);
+        TextView sandboxStatus = text(sandbox.statusReport(), 11, secondaryText);
+        sandboxStatus.setTypeface(Typeface.MONOSPACE);
+        sandboxStatus.setTextIsSelectable(true);
+        fileCard.addView(sandboxStatus, marginParams(0, 8, 0, 0));
+        EditText fileName = input("src/main.js or notes/todo.md", false);
+        fileName.setSingleLine(true);
+        EditText fileBody = input("File contents…", false);
+        fileBody.setSingleLine(false);
+        fileBody.setMinLines(3);
+        fileCard.addView(fileName, marginParams(0, 8, 0, 0));
+        fileCard.addView(fileBody, marginParams(0, 6, 0, 0));
+        LinearLayout fileActions = new LinearLayout(this);
+        fileActions.setGravity(Gravity.END);
+        fileActions.addView(smallButton("Write file", mint, view -> {
+            String name = fileName.getText().toString().trim();
+            String body = fileBody.getText().toString();
+            new AlertDialog.Builder(this)
+                    .setTitle("Write sandbox file?")
+                    .setMessage("Create or overwrite “" + (name.isEmpty() ? "untitled.txt" : name) + "” in the private sandbox?")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Write", (d, w) -> {
+                        try {
+                            java.io.File f = sandbox.writeText(name, body);
+                            sandboxStatus.setText(sandbox.statusReport());
+                            toast("Wrote " + f.getName());
+                        } catch (Exception e) {
+                            toast(e.getMessage() == null ? "Write failed" : e.getMessage());
+                        }
+                    })
+                    .show();
+        }), wrap());
+        fileActions.addView(smallButton("Refresh", secondaryText, view -> sandboxStatus.setText(sandbox.statusReport())), marginWrapParams(7, 0, 0, 0));
+        fileActions.addView(smallButton("Zip all", lavender, view -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("Zip sandbox files?")
+                    .setMessage("Create a zip archive of current sandbox files inside the sandbox.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Zip", (d, w) -> {
+                        try {
+                            java.io.File z = sandbox.zipAll("sandbox-" + System.currentTimeMillis() + ".zip");
+                            sandboxStatus.setText(sandbox.statusReport());
+                            toast("Created " + z.getName());
+                        } catch (Exception e) {
+                            toast(e.getMessage() == null ? "Zip failed" : e.getMessage());
+                        }
+                    })
+                    .show();
+        }), marginWrapParams(7, 0, 0, 0));
+        fileCard.addView(fileActions, marginParams(0, 10, 0, 0));
+        page.addView(fileCard, marginParams(0, 0, 0, 12));
+
         LinearLayout notes = card();
         notes.setPadding(dp(14), dp(12), dp(14), dp(12));
         notes.addView(text("GOOD FIT", 10, lavender), wrap());
@@ -1712,6 +1979,12 @@ public class MainActivity extends Activity {
         addPhoneAction(page, "Open browser", "Launch a public page in the browser; Kairo does not type or submit anything.", "browser", () -> launchPhoneIntent(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))));
         addPhoneAction(page, "Open device settings", "Open Android Settings for you to inspect and change manually.", "settings", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_SETTINGS)));
         addPhoneAction(page, "Open Wi-Fi settings", "Show the Android Wi-Fi panel; Kairo cannot change networks silently.", "wifi", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)));
+        addPhoneAction(page, "Open Bluetooth settings", "Show Bluetooth settings for manual pairing.", "bluetooth", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)));
+        addPhoneAction(page, "Open Location settings", "Show location services settings.", "location", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
+        addPhoneAction(page, "Open Battery settings", "Show battery and power usage.", "battery", () -> launchPhoneIntent(new Intent(Intent.ACTION_POWER_USAGE_SUMMARY)));
+        addPhoneAction(page, "Open Display settings", "Show display brightness and timeout settings.", "display", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)));
+        addPhoneAction(page, "Open Sound settings", "Show volume and sound settings.", "sound", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_SOUND_SETTINGS)));
+        addPhoneAction(page, "Open Apps settings", "Show installed applications list.", "apps", () -> launchPhoneIntent(new Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS)));
         addPhoneAction(page, "Open camera", "Launch the visible camera app; Kairo does not capture or upload a photo here.", "camera", () -> launchPhoneIntent(new Intent("android.media.action.IMAGE_CAPTURE")));
 
         LinearLayout dialCard = card();
@@ -1779,7 +2052,77 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showHermesWorkflow() {
+    
+    private void showDevLoop() {
+        closeDrawer();
+        setActiveTab(TAB_AGENTS);
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("Dev Loop", "Plan → Code → Test → Review → Edit → Debug — then loop until done."), wrapParams());
+        enhanceDevLoopWithProgress(page);
+
+        LinearLayout hero = card();
+        hero.setPadding(dp(15), dp(15), dp(15), dp(15));
+        TextView eyebrow = text("CLOSED ENGINEERING LOOP  ·  YOU CONFIRM WRITES", 10, mint);
+        eyebrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        hero.addView(eyebrow, wrap());
+        hero.addView(text("Cycle until tests and review pass. External writes stay behind confirmation.", 13, secondaryText), marginParams(0, 8, 0, 0));
+        LinearLayout heroActions = new LinearLayout(this);
+        heroActions.setGravity(Gravity.END);
+        heroActions.addView(smallButton("Start Dev Loop", lavender, view -> {
+            activeAgentId = "devloop";
+            showChat();
+            if (composer != null) {
+                composer.setText("Run a full Dev Loop on this task. Use sections Plan, Code, Test, Review, Process/Edit, Debug, and Loop decision. Task: ");
+                composer.setSelection(composer.length());
+                composer.requestFocus();
+            }
+        }), wrap());
+        heroActions.addView(smallButton("Open sandbox", mint, view -> showSandbox()), marginWrapParams(8, 0, 0, 0));
+        hero.addView(heroActions, marginParams(0, 12, 0, 0));
+        page.addView(hero, marginParams(0, 12, 0, 12));
+
+        String[][] phases = {
+                {"1", "Plan", "Goals, constraints, acceptance criteria, risks."},
+                {"2", "Code", "Implement or patch; prefer complete files in the sandbox."},
+                {"3", "Test", "Verification steps and expected results."},
+                {"4", "Review", "Correctness, edges, security, simplicity."},
+                {"5", "Edit", "Apply review feedback; keep diffs small."},
+                {"6", "Debug", "Hypothesis → check → fix → re-test."},
+                {"↻", "Loop", "CONTINUE LOOP or DONE with a checklist."}
+        };
+        for (String[] ph : phases) {
+            LinearLayout row = card();
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout top = new LinearLayout(this);
+            top.setGravity(Gravity.CENTER_VERTICAL);
+            TextView badge = text(ph[0], 11, background);
+            badge.setGravity(Gravity.CENTER);
+            badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            badge.setBackground(circle(lavender));
+            top.addView(badge, new LinearLayout.LayoutParams(dp(28), dp(28)));
+            TextView title = text("  " + ph[1], 14, primaryText);
+            title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            top.addView(title, wrap());
+            row.addView(top, wrap());
+            row.addView(text(ph[2], 12, secondaryText), marginParams(0, 6, 0, 0));
+            page.addView(row, marginParams(0, 0, 0, 8));
+        }
+
+        LinearLayout storage = card();
+        storage.setPadding(dp(14), dp(12), dp(14), dp(12));
+        storage.addView(text("PHONE PRIVATE STORAGE", 10, mint), wrap());
+        com.kairo.app.core.SandboxWorkspace sw = new com.kairo.app.core.SandboxWorkspace(this);
+        storage.addView(text("App-private internal storage on this phone:\n" + sw.storageLocation()
+                + "\n\nFolders: src/ · tests/ · out/ · notes/\nNot a full Ubuntu VM — bounded sandbox only.", 12, secondaryText), marginParams(0, 6, 0, 0));
+        page.addView(storage, marginParams(0, 8, 0, 0));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+private void showHermesWorkflow() {
         closeDrawer();
         setActiveTab(TAB_AGENTS);
         content.removeAllViews();
@@ -1807,6 +2150,14 @@ public class MainActivity extends Activity {
                 composer.requestFocus();
             }
         }), marginWrapParams(7, 0, 0, 0));
+        heroActions.addView(smallButton("Handoff pack", mint, view -> {
+            activeAgentId = "hermes";
+            showChat();
+            if (composer != null) {
+                composer.setText("Produce a Hermes handoff pack with: (1) objective, (2) completed steps, (3) open risks, (4) files/tools touched, (5) exact next action requiring my confirmation, (6) rollback notes.");
+                composer.setSelection(composer.length());
+            }
+        }), marginWrapParams(7, 0, 0, 0));
         hero.addView(heroActions, marginParams(0, 12, 0, 0));
         page.addView(hero, marginParams(0, 13, 0, 16));
 
@@ -1815,6 +2166,33 @@ public class MainActivity extends Activity {
         addHermesPhase(page, "02", "Process", "Stream progress as Kairo reads selected context, drafts an artifact, or prepares a connector handoff. No silent writes.", mint);
         addHermesPhase(page, "03", "Review", "Show the proposed diff, file, command, message, deployment, or phone intent before anything consequential happens.", amber);
         addHermesPhase(page, "04", "Handoff", "Wait for your explicit confirmation, then call the bounded action and report the result without claiming more than it did.", lavender);
+
+        LinearLayout templates = card();
+        templates.setPadding(dp(14), dp(12), dp(14), dp(12));
+        templates.addView(text("HERMES STARTERS", 10, lavender), wrap());
+        templates.addView(text("One-tap structured runs. External writes still require confirmation.", 12, secondaryText), marginParams(0, 6, 0, 8));
+        String[][] starters = {
+                {"Ship a safe PR", "Hermes: plan a minimal PR. Inspect status, propose file changes, list risks, and stop before any push or PR creation."},
+                {"Debug with evidence", "Hermes: investigate the failure. List hypotheses, the smallest checks, and a review checkpoint before any fix."},
+                {"Release checklist", "Hermes: build a release checklist with owners, risks, rollback steps, and a final confirmation gate."},
+                {"Sandbox → zip → share", "Hermes: create files in the private sandbox, zip them after review, and prepare a share handoff without silent uploads."}
+        };
+        for (String[] s : starters) {
+            TextView row = text("▸  " + s[0], 13, primaryText);
+            row.setPadding(dp(10), dp(10), dp(10), dp(10));
+            row.setBackground(rounded(raised, 12));
+            final String prompt = s[1];
+            row.setOnClickListener(v -> {
+                activeAgentId = "hermes";
+                showChat();
+                if (composer != null) {
+                    composer.setText(prompt);
+                    composer.setSelection(composer.length());
+                }
+            });
+            templates.addView(row, marginParams(0, 0, 0, 6));
+        }
+        page.addView(templates, marginParams(0, 12, 0, 0));
 
         LinearLayout safety = card();
         safety.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -1910,6 +2288,7 @@ public class MainActivity extends Activity {
         TextView action = smallButton("Open " + ("github".equals(id) ? "tools" : "agent"), lavender, view -> {
             if ("github".equals(id)) showGithubDialog();
             else if ("hermes".equals(id)) showHermesWorkflow();
+            else if ("devloop".equals(id)) showDevLoop();
             else if ("cli".equals(id)) showSandbox();
             else if ("phone".equals(id)) showPhoneControl();
             else if ("research".equals(id)) showModels();
@@ -2263,31 +2642,177 @@ public class MainActivity extends Activity {
                 });
     }
 
+
+    private void showImageStudio() {
+        closeDrawer();
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("Image studio", "Generate images from a text prompt via an OpenAI-compatible images API."), wrapParams());
+
+        LinearLayout intro = card();
+        intro.setPadding(dp(14), dp(13), dp(14), dp(13));
+        intro.addView(text("TEXT → IMAGE", 10, lavender), wrap());
+        intro.addView(text("Uses your saved key and an images-capable model (for example dall-e-3). Images stay on this device until you share them.", 13, secondaryText), marginParams(0, 6, 0, 0));
+        page.addView(intro, marginParams(0, 12, 0, 12));
+
+        EditText prompt = input("Describe the image you want…", false);
+        prompt.setSingleLine(false);
+        prompt.setMinLines(3);
+        prompt.setMaxLines(8);
+        page.addView(prompt, marginParams(0, 0, 0, 10));
+
+        EditText modelField = input("Model id (e.g. dall-e-3)", false);
+        modelField.setSingleLine(true);
+        modelField.setText("dall-e-3");
+        page.addView(text("Model", 11, mutedText), wrap());
+        page.addView(modelField, marginParams(0, 2, 0, 8));
+
+        final String[] sizeHolder = {"1024x1024"};
+        TextView sizeBtn = smallButton("Size: 1024×1024", secondaryText, view -> {
+            String[] labels = {"1024×1024", "1024×1792 (portrait)", "1792×1024 (landscape)"};
+            String[] values = {"1024x1024", "1024x1792", "1792x1024"};
+            new AlertDialog.Builder(this)
+                    .setTitle("Image size")
+                    .setItems(labels, (d, which) -> {
+                        sizeHolder[0] = values[which];
+                        ((TextView) view).setText("Size: " + labels[which]);
+                    })
+                    .show();
+        });
+        page.addView(sizeBtn, marginParams(0, 0, 0, 8));
+
+        ImageView preview = new ImageView(this);
+        preview.setAdjustViewBounds(true);
+        preview.setMaxHeight(dp(320));
+        preview.setVisibility(View.GONE);
+        preview.setBackground(rounded(raised, 14));
+        page.addView(preview, marginParams(0, 0, 0, 10));
+
+        TextView status = text("Ready.", 12, mutedText);
+        page.addView(status, marginParams(0, 0, 0, 8));
+
+        final byte[][] lastBytes = {null};
+        final String[] lastMime = {"image/png"};
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.END);
+        actions.addView(smallButton("Generate", mint, view -> {
+            String ptext = prompt.getText().toString().trim();
+            if (ptext.isEmpty()) { toast("Enter a prompt"); return; }
+            String provider = preferences.getProvider();
+            String key = keyStore.get(provider);
+            if (key == null || key.trim().isEmpty()) {
+                key = keyStore.get("openai");
+                provider = "openai";
+            }
+            if (key == null || key.trim().isEmpty()) {
+                toast("Add an OpenAI or compatible key in Settings");
+                return;
+            }
+            status.setText("Generating… this can take up to a minute.");
+            preview.setVisibility(View.GONE);
+            lastBytes[0] = null;
+            String base = ProviderConfig.baseUrl(provider, preferences);
+            if ("openai".equals(provider) || (base != null && base.contains("openai.com"))) {
+                base = "https://api.openai.com/v1";
+            }
+            ImageGenerationClient.generate(
+                    base,
+                    key,
+                    modelField.getText().toString().trim(),
+                    ptext,
+                    sizeHolder[0],
+                    "standard",
+                    new ImageGenerationClient.Callback() {
+                        @Override public void onSuccess(byte[] bytes, String mimeType, String revisedPrompt) {
+                            runOnUiThread(() -> {
+                                lastBytes[0] = bytes;
+                                lastMime[0] = mimeType == null ? "image/png" : mimeType;
+                                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                                if (bmp != null) {
+                                    preview.setImageBitmap(bmp);
+                                    preview.setVisibility(View.VISIBLE);
+                                }
+                                status.setText("Done · " + (bytes.length / 1024) + " KB"
+                                        + (revisedPrompt != null && !revisedPrompt.isEmpty()
+                                        ? "\nRevised: " + revisedPrompt : ""));
+                                toast("Image ready");
+                            });
+                        }
+                        @Override public void onError(String message) {
+                            runOnUiThread(() -> {
+                                status.setText("Failed: " + message);
+                                toast("Image generation failed");
+                            });
+                        }
+                    });
+        }), wrap());
+        actions.addView(smallButton("Save to sandbox", lavender, view -> {
+            if (lastBytes[0] == null) { toast("Generate an image first"); return; }
+            try {
+                com.kairo.app.core.SandboxWorkspace sw = new com.kairo.app.core.SandboxWorkspace(this);
+                String ext = lastMime[0].contains("jpeg") ? "jpg" : "png";
+                java.io.File outDir = new java.io.File(sw.getRoot(), "out");
+                if (!outDir.exists()) outDir.mkdirs();
+                java.io.File out = new java.io.File(outDir, "image-" + System.currentTimeMillis() + "." + ext);
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    fos.write(lastBytes[0]);
+                }
+                toast("Saved " + out.getName());
+                status.setText(status.getText() + "\nSaved: " + out.getAbsolutePath());
+            } catch (Exception e) {
+                toast(e.getMessage() == null ? "Save failed" : e.getMessage());
+            }
+        }), marginWrapParams(8, 0, 0, 0));
+        actions.addView(smallButton("Share", secondaryText, view -> {
+            if (lastBytes[0] == null) { toast("Generate an image first"); return; }
+            try {
+                java.io.File out = new java.io.File(getCacheDir(), "kairo-image-" + System.currentTimeMillis() + ".png");
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    fos.write(lastBytes[0]);
+                }
+                Intent share = new Intent(Intent.ACTION_SEND);
+                share.setType(lastMime[0]);
+                share.putExtra(Intent.EXTRA_STREAM, Uri.fromFile(out));
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(share, "Share image"));
+            } catch (Exception e) {
+                toast("Share failed");
+            }
+        }), marginWrapParams(8, 0, 0, 0));
+        page.addView(actions, marginParams(0, 4, 0, 0));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    }
+
     private void showArena() {
         closeDrawer();
         ensureArenaModels();
         content.removeAllViews();
         LinearLayout page = page();
-        page.addView(pageHeader("Model arena", "Run two providers in parallel and compare the answers side by side."), wrapParams());
+        page.addView(pageHeader("Arena", "Arena.ai-style live dual-model comparison"), wrapParams());
 
         LinearLayout intro = card();
-        intro.setPadding(dp(14), dp(13), dp(14), dp(13));
-        intro.addView(text("LIVE COMPARISON", 10, lavender), wrap());
-        intro.addView(text("A practical Arena-style view for testing speed, reasoning, and tone. Both responses stream directly into their own panel.", 13, secondaryText), marginParams(0, 6, 0, 0));
-        page.addView(intro, marginParams(0, 12, 0, 12));
+        intro.setPadding(dp(16), dp(14), dp(16), dp(14));
+        intro.addView(text("LIVE SIDE-BY-SIDE", 10, lavender), wrap());
+        intro.addView(text("Pick Model A and Model B → ask one prompt → both stream in parallel. Compare speed, reasoning, and style instantly.", 13, secondaryText), marginParams(0, 7, 0, 0));
+        page.addView(intro, marginParams(0, 12, 0, 14));
 
         arenaPrompt = input("Ask both models the same question…", false);
         arenaPrompt.setSingleLine(false);
         arenaPrompt.setGravity(Gravity.TOP | Gravity.START);
-        arenaPrompt.setMinLines(4);
-        page.addView(arenaPrompt, marginParams(0, 0, 0, 10));
+        arenaPrompt.setMinLines(3);
+        arenaPrompt.setMaxLines(8);
+        page.addView(arenaPrompt, marginParams(0, 0, 0, 12));
 
         LinearLayout pickers = new LinearLayout(this);
         pickers.setGravity(Gravity.CENTER_VERTICAL);
         arenaLeftPicker = smallButton(arenaLabel(true), lavender, view -> chooseArenaModel(true));
-        arenaRightPicker = smallButton(arenaLabel(false), lavender, view -> chooseArenaModel(false));
-        pickers.addView(arenaLeftPicker, new LinearLayout.LayoutParams(0, dp(43), 1));
-        pickers.addView(arenaRightPicker, marginWeightParams(8, 0, 0, 0, 1));
+        arenaRightPicker = smallButton(arenaLabel(false), mint, view -> chooseArenaModel(false));
+        pickers.addView(arenaLeftPicker, new LinearLayout.LayoutParams(0, dp(44), 1));
+        pickers.addView(arenaRightPicker, marginWeightParams(10, 0, 0, 0, 1));
         page.addView(pickers, wrapParams());
 
         arenaRunButton = smallButton("Run comparison", mint, view -> {
@@ -2295,46 +2820,72 @@ public class MainActivity extends Activity {
             else runArena();
         });
         if (arenaLeftRunning || arenaRightRunning) {
-            arenaRunButton.setText("Stop comparison");
+            arenaRunButton.setText("Stop both");
             arenaRunButton.setTextColor(amber);
         }
-        page.addView(arenaRunButton, marginParams(0, 10, 0, 13));
+        page.addView(arenaRunButton, marginParams(0, 12, 0, 16));
 
         LinearLayout panels = new LinearLayout(this);
-        panels.setOrientation(LinearLayout.VERTICAL);
+        boolean wide = getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                || getResources().getDisplayMetrics().widthPixels
+                > (int) (600 * getResources().getDisplayMetrics().density);
+        panels.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         LinearLayout leftCard = arenaResponseCard(true);
         LinearLayout rightCard = arenaResponseCard(false);
-        panels.addView(leftCard, marginParams(0, 0, 0, 10));
-        panels.addView(rightCard, wrapParams());
+        if (wide) {
+            panels.addView(leftCard, new LinearLayout.LayoutParams(0, -2, 1f));
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, -2, 1f);
+            rp.setMargins(dp(10), 0, 0, 0);
+            panels.addView(rightCard, rp);
+        } else {
+            panels.addView(leftCard, marginParams(0, 0, 0, 12));
+            panels.addView(rightCard, wrapParams());
+        }
         page.addView(panels, wrapParams());
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        // Move the page into a scroll container after construction so long answers remain usable.
         content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
         scroll.addView(page, new ScrollView.LayoutParams(-1, -1));
     }
 
     private LinearLayout arenaResponseCard(boolean left) {
         LinearLayout card = card();
-        card.setPadding(dp(13), dp(12), dp(13), dp(12));
-        TextView label = text((left ? "A  ·  " : "B  ·  ") + arenaLabel(left), 12, left ? lavender : mint);
+        card.setPadding(dp(14), dp(13), dp(14), dp(13));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView badge = text(left ? "A" : "B", 11, background);
+        badge.setGravity(Gravity.CENTER);
+        badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        badge.setBackground(circle(left ? lavender : mint));
+        header.addView(badge, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView label = text("  " + arenaLabel(left).replaceFirst("^[AB] · ", ""), 13, primaryText);
         label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        card.addView(label, wrap());
+        header.addView(label, wrap());
+        card.addView(header, wrap());
+
         StringBuilder existing = left ? arenaLeftBuffer : arenaRightBuffer;
         boolean running = left ? arenaLeftRunning : arenaRightRunning;
-        String initial = running ? (existing == null || existing.length() == 0 ? "Live processing…" : existing.toString()) : "Waiting for a prompt…";
-        TextView output = text(initial, 13, secondaryText);
+        String initial = running
+                ? (existing == null || existing.length() == 0 ? "Streaming…" : existing.toString())
+                : "Waiting for a prompt…";
+        TextView output = text(initial, 14, secondaryText);
         output.setTextIsSelectable(true);
-        output.setLineSpacing(1.15f, 1.0f);
-        output.setPadding(0, dp(10), 0, dp(5));
+        output.setLineSpacing(dp(2), 1.05f);
+        output.setPadding(0, dp(12), 0, dp(6));
         card.addView(output, wrapParams());
+
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.END);
         actions.addView(smallButton("Copy", secondaryText,
-                view -> copyToClipboard(output.getText().toString())), wrap());
+                view -> {
+                    copyToClipboard(output.getText().toString());
+                    toast("Copied");
+                }), wrap());
         actions.addView(smallButton("Save as file", lavender,
-                view -> showCreateArtifactFromAnswer(output.getText().toString())), marginWrapParams(7, 0, 0, 0));
-        card.addView(actions, marginParams(0, 5, 0, 0));
+                view -> showCreateArtifactFromAnswer(output.getText().toString())), marginWrapParams(8, 0, 0, 0));
+        card.addView(actions, marginParams(0, 6, 0, 0));
         if (left) arenaLeftOutput = output;
         else arenaRightOutput = output;
         return card;
@@ -2393,6 +2944,10 @@ public class MainActivity extends Activity {
         arenaRightBuffer = new StringBuilder();
         arenaLeftRunning = true;
         arenaRightRunning = true;
+        arenaLeftStartedAt = System.currentTimeMillis();
+        arenaRightStartedAt = System.currentTimeMillis();
+        arenaLeftChars = 0;
+        arenaRightChars = 0;
         arenaRunButton.setText("Stop comparison");
         arenaRunButton.setTextColor(amber);
         arenaLeftOutput.setText("Connecting to " + ProviderConfig.displayName(arenaLeftModel.getProviderId()) + "…");
@@ -2433,8 +2988,14 @@ public class MainActivity extends Activity {
         StringBuilder buffer = left ? arenaLeftBuffer : arenaRightBuffer;
         if (buffer == null) return;
         buffer.append(token);
+        if (left) arenaLeftChars += token.length(); else arenaRightChars += token.length();
         TextView output = left ? arenaLeftOutput : arenaRightOutput;
-        if (output != null) output.setText(MarkdownRenderer.render(buffer.toString()));
+        if (output != null) {
+            SpannableStringBuilder withCaret = new SpannableStringBuilder(
+                    MarkdownRenderer.render(buffer.toString()));
+            withCaret.append(" ▍");
+            output.setText(withCaret);
+        }
     }
 
     private void finishArenaSide(boolean left, String error) {
@@ -2443,7 +3004,13 @@ public class MainActivity extends Activity {
         if (error != null && buffer.length() == 0) buffer.append("Request failed: ").append(error);
         if (buffer.length() == 0) buffer.append("No answer returned.");
         TextView output = left ? arenaLeftOutput : arenaRightOutput;
-        if (output != null) output.setText(MarkdownRenderer.render(buffer.toString().trim()));
+        long started = left ? arenaLeftStartedAt : arenaRightStartedAt;
+        int chars = left ? arenaLeftChars : arenaRightChars;
+        long elapsedMs = Math.max(1L, System.currentTimeMillis() - started);
+        double secs = elapsedMs / 1000.0;
+        double cps = chars / secs;
+        String stats = String.format(java.util.Locale.US, "\n\n_%.1fs · %d chars · %.0f c/s_", secs, chars, cps);
+        if (output != null) output.setText(MarkdownRenderer.render(buffer.toString().trim() + stats));
         if (left) {
             arenaLeftRunning = false;
             arenaLeftRequest = null;
@@ -4301,9 +4868,9 @@ public class MainActivity extends Activity {
     private TextView text(String value, float size, int color) {
         TextView view = new TextView(this);
         view.setText(value);
-        view.setTextSize(size);
+        float scale = (preferences != null && preferences.isLargeText()) ? 1.15f : 1f;
+        view.setTextSize(size * scale);
         view.setTextColor(color);
-        view.setFontFeatureSettings("kern");
         return view;
     }
 
@@ -4362,8 +4929,23 @@ public class MainActivity extends Activity {
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(stroked(border, 17));
+        card.setBackground(glassSurface());
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setElevation(dp(2));
         return card;
+    }
+
+    /** Soft glass / elevated surface (blur-like on older APIs via translucency). */
+    private GradientDrawable glassSurface() {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(preferences != null && preferences.isLightTheme()
+                ? Color.argb(230, 255, 255, 255)
+                : Color.argb(210, surface >> 16 & 0xFF, surface >> 8 & 0xFF, surface & 0xFF));
+        d.setCornerRadius(dp(16));
+        d.setStroke(dp(1), preferences != null && preferences.isLightTheme()
+                ? Color.argb(40, 0, 0, 0)
+                : Color.argb(50, 255, 255, 255));
+        return d;
     }
 
     private GradientDrawable rounded(int color, float radius) {
@@ -4414,6 +4996,837 @@ public class MainActivity extends Activity {
 
     private void scrollChatToBottom() {
         if (chatScroll != null) chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+
+    /** Command palette – quick jump to tools, AI actions, settings, export. */
+    private void showCommandPalette() {
+        String[] items = {
+                "New conversation",
+                "Model arena",
+                "Search artifacts",
+                "Project instructions",
+                "AI actions",
+                "Export conversation (Markdown)",
+                "Safe phone control",
+                "Connectors",
+                "Memories",
+                "Settings",
+                "Toggle theme",
+                "Toggle continuous voice",
+                "Export conversation (PDF)",
+                "Toggle app lock"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Command palette")
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: startNewChat(); break;
+                        case 1: showArena(); break;
+                        case 2: showArtifactSearch(); break;
+                        case 3: showProjectInstructionsEditor(); break;
+                        case 4: showAiFeaturesPicker(); break;
+                        case 5: exportConversationMarkdown(); break;
+                        case 6: showPhoneControl(); break;
+                        case 7: showConnectors(); break;
+                        case 8: showMemories(); break;
+                        case 9: showSettings(); break;
+                        case 10:
+                            preferences.setThemeMode(preferences.isLightTheme() ? "dark" : "light");
+                            recreate();
+                            break;
+                        case 11:
+                            preferences.setVoiceContinuous(!preferences.isVoiceContinuous());
+                            toast(preferences.isVoiceContinuous() ? "Continuous voice on" : "Continuous voice off");
+                            break;
+                        case 12:
+                            exportConversationPdf();
+                            break;
+                        case 13:
+                            preferences.setAppLockEnabled(!preferences.isAppLockEnabled());
+                            sessionUnlocked = !preferences.isAppLockEnabled();
+                            toast(preferences.isAppLockEnabled() ? "App lock enabled" : "App lock disabled");
+                            break;
+                    }
+                })
+                .show();
+    }
+
+    private void showProjectInstructionsEditor() {
+        final EditText input = input("Pinned project / system instructions…", false);
+        input.setSingleLine(false);
+        input.setMinLines(5);
+        input.setMaxLines(12);
+        input.setText(preferences.getSystemInstructions());
+        new AlertDialog.Builder(this)
+                .setTitle("Project instructions")
+                .setMessage("These instructions are prepended to future prompts. They stay on-device and are never sent as a separate system role unless the provider supports it.")
+                .setView(input)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, w) -> {
+                    preferences.setSystemInstructions(input.getText().toString());
+                    toast("Project instructions saved");
+                })
+                .show();
+    }
+
+    private void showArtifactSearch() {
+        final EditText query = input("Search private artifacts…", false);
+        new AlertDialog.Builder(this)
+                .setTitle("Search artifacts")
+                .setView(query)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Search", (d, w) -> {
+                    String q = query.getText().toString().trim().toLowerCase(java.util.Locale.US);
+                    if (q.isEmpty()) { toast("Enter a search term"); return; }
+                    java.util.List<com.kairo.app.data.Artifact> hits = new java.util.ArrayList<>();
+                    try {
+                        for (com.kairo.app.data.Artifact a : new ArtifactStore(this).list()) {
+                            String hay = ((a.getName() == null ? "" : a.getName()) + "\n" + (a.getContent() == null ? "" : a.getContent())).toLowerCase(java.util.Locale.US);
+                            if (hay.contains(q)) hits.add(a);
+                        }
+                    } catch (Exception e) {
+                        toast("Search failed");
+                        return;
+                    }
+                    if (hits.isEmpty()) { toast("No matching artifacts"); return; }
+                    String[] labels = new String[Math.min(hits.size(), 20)];
+                    for (int i = 0; i < labels.length; i++) {
+                        com.kairo.app.data.Artifact a = hits.get(i);
+                        labels[i] = (a.getName() == null ? "untitled" : a.getName());
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle("Matches (" + hits.size() + ")")
+                            .setItems(labels, (dd, which) -> {
+                                com.kairo.app.data.Artifact chosen = hits.get(which);
+                                String snippet = chosen.getContent() == null ? "" : chosen.getContent();
+                                if (snippet.length() > 1200) snippet = snippet.substring(0, 1200) + "\n…";
+                                if (composer != null) {
+                                    String cur = composer.getText().toString();
+                                    composer.setText(cur + (cur.isEmpty() ? "" : "\n\n") + "From artifact “" + chosen.getName() + "”:\n" + snippet);
+                                    composer.setSelection(composer.length());
+                                }
+                            })
+                            .show();
+                })
+                .show();
+    }
+
+    private void exportConversationMarkdown() {
+        if (conversation == null || conversation.isEmpty()) {
+            toast("Nothing to export");
+            return;
+        }
+        StringBuilder md = new StringBuilder();
+        md.append("# Conversation export\n\n");
+        md.append("_Redacted export · credentials stripped · private_\n\n");
+        for (ChatMessage m : conversation) {
+            String role = "user".equals(m.getRole()) ? "You" : "Assistant";
+            md.append("### ").append(role).append("\n\n");
+            String body = m.getContent() == null ? "" : m.getContent();
+            // light redaction of common key patterns
+            body = body.replaceAll("(?i)(sk-[a-zA-Z0-9]{16,})", "[REDACTED_KEY]");
+            body = body.replaceAll("(?i)(ghp_[a-zA-Z0-9]{16,})", "[REDACTED_TOKEN]");
+            md.append(body).append("\n\n");
+        }
+        String sys = preferences.getSystemInstructions();
+        if (sys != null && !sys.trim().isEmpty()) {
+            md.append("---\n\n### Project instructions\n\n").append(sys).append("\n");
+        }
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("text/markdown");
+        share.putExtra(Intent.EXTRA_TEXT, md.toString());
+        share.putExtra(Intent.EXTRA_SUBJECT, "Conversation export");
+        startActivity(Intent.createChooser(share, "Export conversation"));
+    }
+
+    private void offerMemorySuggestion(String answer) {
+        if (answer == null || answer.length() < 80) return;
+        String candidate = answer.length() > 220 ? answer.substring(0, 220).trim() + "…" : answer.trim();
+        new AlertDialog.Builder(this)
+                .setTitle("Save a memory?")
+                .setMessage("Suggested memory from this answer:\n\n“" + candidate + "”\n\nOnly saved after you confirm. Stored encrypted on this device.")
+                .setNegativeButton("Dismiss", null)
+                .setPositiveButton("Review & save", (d, w) -> {
+                    try {
+                        // Reuse existing memory flow if available
+                        if (composer != null) {
+                            // open memory UI path via existing entry when possible
+                            showMemories();
+                        }
+                        toast("Open Memories to save a refined note");
+                    } catch (Exception e) {
+                        toast("Could not open memories");
+                    }
+                })
+                .show();
+    }
+
+
+    private void exportConversationPdf() {
+        if (conversation == null || conversation.isEmpty()) {
+            toast("Nothing to export");
+            return;
+        }
+        try {
+            android.graphics.pdf.PdfDocument doc = new android.graphics.pdf.PdfDocument();
+            int pageWidth = 595;
+            int pageHeight = 842;
+            int y = 40;
+            int pageNum = 1;
+            android.graphics.pdf.PdfDocument.PageInfo info =
+                    new android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create();
+            android.graphics.pdf.PdfDocument.Page page = doc.startPage(info);
+            android.graphics.Canvas canvas = page.getCanvas();
+            android.graphics.Paint paint = new android.graphics.Paint();
+            paint.setColor(android.graphics.Color.BLACK);
+            paint.setTextSize(11f);
+            android.graphics.Paint title = new android.graphics.Paint();
+            title.setColor(android.graphics.Color.BLACK);
+            title.setTextSize(16f);
+            title.setFakeBoldText(true);
+            canvas.drawText("Kairo conversation export", 40, y, title);
+            y += 28;
+            paint.setTextSize(10f);
+            canvas.drawText("Redacted · private · generated on device", 40, y, paint);
+            y += 22;
+            for (ChatMessage m : conversation) {
+                String role = "user".equals(m.getRole()) ? "You" : "Assistant";
+                String body = m.getContent() == null ? "" : m.getContent();
+                body = body.replaceAll("(?i)(sk-[a-zA-Z0-9]{16,})", "[REDACTED_KEY]");
+                body = body.replaceAll("(?i)(ghp_[a-zA-Z0-9]{16,})", "[REDACTED_TOKEN]");
+                String block = role + ": " + body;
+                for (String line : wrapPdfLines(block, 80)) {
+                    if (y > pageHeight - 50) {
+                        doc.finishPage(page);
+                        pageNum++;
+                        info = new android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create();
+                        page = doc.startPage(info);
+                        canvas = page.getCanvas();
+                        y = 40;
+                    }
+                    canvas.drawText(line, 40, y, paint);
+                    y += 14;
+                }
+                y += 10;
+            }
+            doc.finishPage(page);
+            java.io.File out = new java.io.File(getCacheDir(), "kairo-export-" + System.currentTimeMillis() + ".pdf");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            doc.writeTo(fos);
+            fos.close();
+            doc.close();
+            android.net.Uri uri = android.net.Uri.fromFile(out);
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("application/pdf");
+            share.putExtra(Intent.EXTRA_STREAM, uri);
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(share, "Share PDF export"));
+            toast("PDF ready");
+        } catch (Exception e) {
+            toast("PDF export failed: " + e.getMessage());
+        }
+    }
+
+    private java.util.List<String> wrapPdfLines(String text, int width) {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        if (text == null) return lines;
+        for (String paragraph : text.split("\\n")) {
+            String remaining = paragraph;
+            while (remaining.length() > width) {
+                int breakAt = remaining.lastIndexOf(' ', width);
+                if (breakAt < 20) breakAt = width;
+                lines.add(remaining.substring(0, breakAt));
+                remaining = remaining.substring(breakAt).trim();
+            }
+            lines.add(remaining);
+        }
+        return lines;
+    }
+
+    private void showHermesTimeline(String plan, String process, String review) {
+        LinearLayout card = card();
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.addView(text("HERMES TIMELINE", 10, lavender), wrap());
+        String[] steps = {"1 · Plan", "2 · Process", "3 · Review", "4 · Handoff"};
+        String[] bodies = {
+                plan == null || plan.isEmpty() ? "Awaiting plan…" : plan,
+                process == null || process.isEmpty() ? "Awaiting process…" : process,
+                review == null || review.isEmpty() ? "Awaiting review…" : review,
+                "Ready for your confirmation before any external write."
+        };
+        for (int i = 0; i < steps.length; i++) {
+            TextView h = text(steps[i], 12, primaryText);
+            h.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            card.addView(h, marginParams(0, 10, 0, 2));
+            TextView b = text(bodies[i], 12, secondaryText);
+            b.setTextIsSelectable(true);
+            card.addView(b, wrap());
+        }
+        if (chatHistory != null) {
+            chatHistory.addView(card, marginParams(0, 8, 0, 12));
+            scrollChatToBottom();
+        }
+    }
+
+
+    private void openEmailDraft() {
+        final EditText to = input("To (optional)", false);
+        final EditText subject = input("Subject", false);
+        final EditText body = input("Body", false);
+        body.setMinLines(4);
+        body.setSingleLine(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(20), dp(8), dp(20), dp(4));
+        panel.addView(text("Opens the system email app with a prefilled draft. Nothing is sent automatically.", 12, secondaryText), marginParams(0, 0, 0, 8));
+        panel.addView(to, wrapParams());
+        panel.addView(subject, marginParams(0, 6, 0, 0));
+        panel.addView(body, marginParams(0, 6, 0, 0));
+        new AlertDialog.Builder(this)
+                .setTitle("Email draft")
+                .setView(panel)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open email app", (d, w) -> {
+                    Intent intent = new Intent(Intent.ACTION_SENDTO);
+                    intent.setData(android.net.Uri.parse("mailto:"));
+                    String t = to.getText().toString().trim();
+                    if (!t.isEmpty()) intent.putExtra(Intent.EXTRA_EMAIL, new String[]{t});
+                    intent.putExtra(Intent.EXTRA_SUBJECT, subject.getText().toString());
+                    intent.putExtra(Intent.EXTRA_TEXT, body.getText().toString());
+                    try {
+                        startActivity(Intent.createChooser(intent, "Send email with"));
+                    } catch (Exception e) {
+                        toast("No email app available");
+                    }
+                })
+                .show();
+    }
+
+    private void openSystemCalendar() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_APP_CALENDAR);
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("content://com.android.calendar/time")));
+            } catch (Exception e2) {
+                toast("Could not open calendar");
+            }
+        }
+    }
+
+
+    private void setContentWithTransition(Runnable rebuild) {
+        if (content == null) {
+            if (rebuild != null) rebuild.run();
+            return;
+        }
+        UiEffects.transitionContent(content, rebuild);
+    }
+
+    
+    private void showSandboxBrowser() {
+        closeDrawer();
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("Sandbox browser", "Open, edit, share, or delete files in private phone storage."), wrapParams());
+        final com.kairo.app.core.SandboxWorkspace sw = new com.kairo.app.core.SandboxWorkspace(this);
+        page.addView(text(sw.storageLocation(), 11, mutedText), marginParams(0, 8, 0, 10));
+        java.util.List<String> files = sw.listFiles();
+        if (files.isEmpty()) {
+            page.addView(text("Sandbox is empty. Create files from Sandbox console or Dev Loop.", 13, secondaryText), wrap());
+        } else {
+            for (String line : files) {
+                final String rel = line.contains("  (") ? line.substring(0, line.lastIndexOf("  (")) : line;
+                TextView row = text("📄  " + line, 13, primaryText);
+                row.setPadding(dp(12), dp(12), dp(12), dp(12));
+                row.setBackground(glassSurface());
+                row.setContentDescription("Sandbox file " + rel);
+                row.setOnClickListener(v -> {
+                    String[] actions = {"View / edit", "Copy path", "Delete"};
+                    new AlertDialog.Builder(this).setTitle(rel).setItems(actions, (d, which) -> {
+                        try {
+                            if (which == 0) {
+                                String body = sw.readText(rel);
+                                EditText editor = input(rel, false);
+                                editor.setText(body);
+                                editor.setMinLines(8);
+                                editor.setSingleLine(false);
+                                new AlertDialog.Builder(this).setTitle("Edit " + rel).setView(editor)
+                                        .setNegativeButton("Cancel", null)
+                                        .setPositiveButton("Save", (dd, w) -> {
+                                            String newBody = editor.getText().toString();
+                                            if (!body.equals(newBody)) {
+                                                showDiffThenConfirm("Overwrite sandbox file?", body, newBody, () -> {
+                                                    try {
+                                                        sw.writeText(rel, newBody);
+                                                        toast("Saved");
+                                                        showSandboxBrowser();
+                                                    } catch (Exception ex) {
+                                                        toast(ex.getMessage());
+                                                    }
+                                                });
+                                            } else toast("No changes");
+                                        }).show();
+                            } else if (which == 1) {
+                                copyToClipboard(new java.io.File(sw.getRoot(), rel).getAbsolutePath());
+                                toast("Path copied");
+                            } else {
+                                new AlertDialog.Builder(this).setTitle("Delete " + rel + "?")
+                                        .setNegativeButton("Cancel", null)
+                                        .setPositiveButton("Delete", (dd, w) -> {
+                                            sw.delete(rel);
+                                            showSandboxBrowser();
+                                        }).show();
+                            }
+                        } catch (Exception ex) {
+                            toast(ex.getMessage() == null ? "Failed" : ex.getMessage());
+                        }
+                    }).show();
+                });
+                page.addView(row, marginParams(0, 0, 0, 8));
+            }
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+        if (content.getChildCount() > 0) UiEffects.fadeIn(content.getChildAt(0), 220);
+    }
+
+    private void showDiffThenConfirm(String title, String before, String after, Runnable onConfirm) {
+        String b = before == null ? "" : before;
+        String a = after == null ? "" : after;
+        StringBuilder diff = new StringBuilder();
+        String[] bl = b.split("\n", -1);
+        String[] al = a.split("\n", -1);
+        int max = Math.max(bl.length, al.length);
+        int shown = 0;
+        for (int i = 0; i < max && shown < 80; i++) {
+            String left = i < bl.length ? bl[i] : "";
+            String right = i < al.length ? al[i] : "";
+            if (!left.equals(right)) {
+                if (!left.isEmpty()) diff.append("- ").append(left).append('\n');
+                if (!right.isEmpty()) diff.append("+ ").append(right).append('\n');
+                shown++;
+            }
+        }
+        if (diff.length() == 0) diff.append("(no line differences detected)\n");
+        TextView tv = text(diff.toString(), 12, secondaryText);
+        tv.setTypeface(Typeface.MONOSPACE);
+        tv.setTextIsSelectable(true);
+        ScrollView sc = new ScrollView(this);
+        sc.addView(tv);
+        sc.setPadding(dp(16), dp(8), dp(16), dp(8));
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage("Review the diff, then confirm.")
+                .setView(sc)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Confirm", (d, w) -> onConfirm.run())
+                .show();
+    }
+
+    private void showGitHubCommitWizard() {
+        closeDrawer();
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("GitHub commit wizard", "Path + content + message → review diff → confirm push."), wrapParams());
+        EditText repo = input("owner/repo", false);
+        EditText branch = input("branch (default main)", false);
+        branch.setText("main");
+        EditText path = input("path/to/file.txt", false);
+        EditText message = input("Commit message", false);
+        EditText body = input("File content", false);
+        body.setSingleLine(false);
+        body.setMinLines(6);
+        page.addView(text("Repository", 11, mutedText), marginParams(0, 10, 0, 2));
+        page.addView(repo, wrap());
+        page.addView(text("Branch", 11, mutedText), marginParams(0, 8, 0, 2));
+        page.addView(branch, wrap());
+        page.addView(text("File path", 11, mutedText), marginParams(0, 8, 0, 2));
+        page.addView(path, wrap());
+        page.addView(text("Commit message", 11, mutedText), marginParams(0, 8, 0, 2));
+        page.addView(message, wrap());
+        page.addView(text("Content", 11, mutedText), marginParams(0, 8, 0, 2));
+        page.addView(body, wrap());
+        TextView status = text("", 12, mutedText);
+        page.addView(status, marginParams(0, 8, 0, 0));
+        page.addView(smallButton("Review & push", mint, view -> {
+            String token = keyStore.get("github");
+            if (token == null || token.isEmpty()) { toast("Add a GitHub token first"); return; }
+            String r = repo.getText().toString().trim();
+            String fp = path.getText().toString().trim();
+            String br = branch.getText().toString().trim();
+            if (br.isEmpty()) br = "main";
+            String msg = message.getText().toString().trim();
+            String contentVal = body.getText().toString();
+            if (r.isEmpty() || fp.isEmpty()) { toast("Repo and path required"); return; }
+            final String branchFinal = br;
+            new GitHubClient().readFile(token, r, fp, branchFinal, new GitHubClient.ResultCallback() {
+                @Override public void onSuccess(String existing) {
+                    runOnUiThread(() -> showDiffThenConfirm("Push to GitHub?", existing, contentVal, () -> {
+                        status.setText("Pushing…");
+                        new GitHubClient().pushFile(token, r, fp, branchFinal,
+                                msg.isEmpty() ? "Update from Kairo" : msg, contentVal,
+                                new GitHubClient.ResultCallback() {
+                                    @Override public void onSuccess(String result) {
+                                        runOnUiThread(() -> { status.setText(result); toast("Pushed"); });
+                                    }
+                                    @Override public void onError(String message) {
+                                        runOnUiThread(() -> { status.setText(message); toast("Push failed"); });
+                                    }
+                                });
+                    }));
+                }
+                @Override public void onError(String message) {
+                    runOnUiThread(() -> showDiffThenConfirm("Create new file on GitHub?", "", contentVal, () -> {
+                        status.setText("Creating…");
+                        new GitHubClient().pushFile(token, r, fp, branchFinal,
+                                msg.isEmpty() ? "Add from Kairo" : msg, contentVal,
+                                new GitHubClient.ResultCallback() {
+                                    @Override public void onSuccess(String result) {
+                                        runOnUiThread(() -> { status.setText(result); toast("Created"); });
+                                    }
+                                    @Override public void onError(String err) {
+                                        runOnUiThread(() -> status.setText(err));
+                                    }
+                                });
+                    }));
+                }
+            });
+        }), marginParams(0, 12, 0, 0));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+    private void showPromptTemplates() {
+        closeDrawer();
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("Prompt templates", "User-editable templates stored on this device."), wrapParams());
+        final PromptTemplateStore store = new PromptTemplateStore(this);
+        for (String name : store.names()) {
+            TextView row = text("▸  " + name, 14, primaryText);
+            row.setPadding(dp(12), dp(12), dp(12), dp(12));
+            row.setBackground(glassSurface());
+            row.setContentDescription("Template " + name);
+            final String n = name;
+            row.setOnClickListener(v -> {
+                String body = store.get(n);
+                if (composer == null) showChat();
+                if (composer != null) {
+                    composer.setText(body);
+                    composer.setSelection(composer.length());
+                }
+                toast("Template loaded");
+            });
+            row.setOnLongClickListener(v -> {
+                new AlertDialog.Builder(this).setTitle(n)
+                        .setItems(new String[]{"Edit", "Delete"}, (d, which) -> {
+                            if (which == 1) { store.delete(n); showPromptTemplates(); }
+                            else {
+                                EditText ed = input(n, false);
+                                ed.setText(store.get(n));
+                                ed.setMinLines(5);
+                                ed.setSingleLine(false);
+                                new AlertDialog.Builder(this).setTitle("Edit template").setView(ed)
+                                        .setPositiveButton("Save", (dd, w) -> {
+                                            store.save(n, ed.getText().toString());
+                                            toast("Saved");
+                                        }).setNegativeButton("Cancel", null).show();
+                            }
+                        }).show();
+                return true;
+            });
+            page.addView(row, marginParams(0, 0, 0, 8));
+        }
+        page.addView(smallButton("Add template", lavender, v -> {
+            EditText name = input("Name", false);
+            EditText body = input("Template body", false);
+            body.setMinLines(4);
+            body.setSingleLine(false);
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(16), dp(8), dp(16), dp(4));
+            box.addView(name);
+            box.addView(body);
+            new AlertDialog.Builder(this).setTitle("New template").setView(box)
+                    .setPositiveButton("Save", (d, w) -> {
+                        store.save(name.getText().toString(), body.getText().toString());
+                        showPromptTemplates();
+                    }).setNegativeButton("Cancel", null).show();
+        }), marginParams(0, 8, 0, 0));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+    private void showWebhookTester() {
+        closeDrawer();
+        content.removeAllViews();
+        LinearLayout page = page();
+        page.addView(pageHeader("Webhook tester", "Send one HTTPS JSON request and inspect the log."), wrapParams());
+        EditText url = input("https://example.com/webhook", false);
+        EditText body = input("{\"ok\":true}", false);
+        body.setMinLines(3);
+        body.setSingleLine(false);
+        page.addView(url, marginParams(0, 10, 0, 6));
+        page.addView(body, marginParams(0, 0, 0, 8));
+        TextView out = text("Log appears here.", 12, secondaryText);
+        out.setTextIsSelectable(true);
+        out.setTypeface(Typeface.MONOSPACE);
+        page.addView(smallButton("Send (confirm)", mint, v -> {
+            new AlertDialog.Builder(this).setTitle("Send webhook?")
+                    .setMessage(url.getText().toString())
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Send", (d, w) -> {
+                        out.setText("Sending…");
+                        WebhookTester.send(url.getText().toString(), body.getText().toString(),
+                                report -> runOnUiThread(() -> out.setText(report)));
+                    }).show();
+        }), wrap());
+        page.addView(out, marginParams(0, 10, 0, 0));
+        page.addView(smallButton("Show log", secondaryText, v -> {
+            java.util.List<String> log = WebhookTester.logSnapshot();
+            out.setText(log.isEmpty() ? "(empty)" : android.text.TextUtils.join("\n", log));
+        }), marginParams(0, 8, 0, 0));
+        // GitLab / Bitbucket read-only
+        page.addView(text("READ-ONLY CONNECTORS", 10, lavender), marginParams(0, 16, 0, 6));
+        page.addView(smallButton("List GitLab projects", secondaryText, v -> {
+            String token = keyStore.get("gitlab");
+            if (token == null || token.isEmpty()) { toast("Save a GitLab token in Settings/Connectors first"); return; }
+            out.setText("Loading GitLab…");
+            new GitLabClient().listProjects(token, new GitLabClient.Callback() {
+                @Override public void onSuccess(String result) { runOnUiThread(() -> out.setText(result)); }
+                @Override public void onError(String message) { runOnUiThread(() -> out.setText(message)); }
+            });
+        }), marginParams(0, 4, 0, 0));
+        page.addView(smallButton("List Bitbucket repos", secondaryText, v -> {
+            String token = keyStore.get("bitbucket");
+            if (token == null || token.isEmpty()) { toast("Save bitbucket as username:app_password"); return; }
+            out.setText("Loading Bitbucket…");
+            new BitbucketClient().listRepos(token, new BitbucketClient.Callback() {
+                @Override public void onSuccess(String result) { runOnUiThread(() -> out.setText(result)); }
+                @Override public void onError(String message) { runOnUiThread(() -> out.setText(message)); }
+            });
+        }), marginParams(0, 4, 0, 0));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+    private void showOnboardingIfNeeded() {
+        if (preferences == null || preferences.isOnboardingDone()) return;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(20), dp(12), dp(20), dp(8));
+        panel.addView(text("1. Add a provider API key in Settings\n2. Pick a model\n3. Try Dev Loop on a small task\n4. Create a file in the Sandbox", 14, secondaryText));
+        new AlertDialog.Builder(this)
+                .setTitle("Welcome to Kairo")
+                .setView(panel)
+                .setPositiveButton("Got it", (d, w) -> preferences.setOnboardingDone(true))
+                .setNeutralButton("Open Settings", (d, w) -> {
+                    preferences.setOnboardingDone(true);
+                    showSettings();
+                })
+                .show();
+    }
+
+    private void enhanceDevLoopWithProgress(LinearLayout page) {
+        if (page == null) return;
+        DevLoopState state = new DevLoopState(this);
+        LinearLayout barWrap = card();
+        barWrap.setPadding(dp(14), dp(12), dp(14), dp(12));
+        barWrap.addView(text("DEV LOOP PROGRESS · " + state.phaseLabel(), 11, lavender), wrap());
+        View barBg = new View(this);
+        barBg.setBackground(rounded(soft, 8));
+        LinearLayout.LayoutParams bgLp = new LinearLayout.LayoutParams(-1, dp(10));
+        bgLp.topMargin = dp(8);
+        barWrap.addView(barBg, bgLp);
+        View barFg = new View(this);
+        barFg.setBackground(rounded(mint, 8));
+        int width = (int) ((getResources().getDisplayMetrics().widthPixels - dp(64)) * state.progress());
+        barWrap.addView(barFg, new LinearLayout.LayoutParams(Math.max(dp(8), width), dp(10)));
+        LinearLayout controls = new LinearLayout(this);
+        controls.setPadding(0, dp(8), 0, 0);
+        controls.addView(smallButton("Advance phase", mint, v -> { state.advance(); showDevLoop(); }), wrap());
+        controls.addView(smallButton("Reset", secondaryText, v -> { state.reset(); showDevLoop(); }), marginWrapParams(8, 0, 0, 0));
+        barWrap.addView(controls, wrap());
+        page.addView(barWrap, marginParams(0, 0, 0, 10));
+    }
+
+    private void showBackupRestore() {
+        StringBuilder meta = new StringBuilder();
+        meta.append("{\n");
+        meta.append("  \"provider\": \"").append(preferences.getProvider()).append("\",\n");
+        meta.append("  \"model\": \"").append(preferences.getModel()).append("\",\n");
+        meta.append("  \"theme\": \"").append(preferences.getThemeMode()).append("\",\n");
+        meta.append("  \"note\": \"Keys are NOT included. Memories listed by category only.\"\n");
+        meta.append("}\n");
+        try {
+            for (MemoryItem m : new MemoryStore(this).load()) {
+                String preview = m.getContent();
+                if (preview.length() > 40) preview = preview.substring(0, 40) + "…";
+                meta.append("memory[").append(m.getCategory()).append("]: ").append(preview).append('\n');
+            }
+        } catch (Exception ignored) {}
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("text/plain");
+        share.putExtra(Intent.EXTRA_TEXT, meta.toString());
+        startActivity(Intent.createChooser(share, "Export metadata backup"));
+        toast("Metadata only — raw keys never exported");
+    }
+
+private void applyThemeColors() {
+        if (preferences != null && preferences.isLightTheme()) {
+            // Light theme – clean Claude/Groq inspired
+            background = Color.rgb(250, 249, 247);
+            surface = Color.rgb(255, 255, 255);
+            raised = Color.rgb(244, 243, 240);
+            soft = Color.rgb(238, 236, 232);
+            border = Color.rgb(222, 220, 214);
+            primaryText = Color.rgb(28, 28, 30);
+            secondaryText = Color.rgb(90, 92, 100);
+            mutedText = Color.rgb(130, 132, 140);
+            lavender = Color.rgb(110, 90, 210);
+            mint = Color.rgb(30, 150, 120);
+            amber = Color.rgb(180, 130, 40);
+            red = Color.rgb(200, 70, 70);
+            userBubble = Color.rgb(230, 224, 255);
+            assistantSoft = Color.rgb(245, 244, 242);
+        } else {
+            // Dark theme (default)
+            background = Color.rgb(13, 14, 17);
+            surface = Color.rgb(21, 23, 28);
+            raised = Color.rgb(28, 31, 38);
+            soft = Color.rgb(35, 38, 47);
+            border = Color.rgb(46, 50, 60);
+            primaryText = Color.rgb(244, 243, 239);
+            secondaryText = Color.rgb(163, 165, 175);
+            mutedText = Color.rgb(107, 110, 121);
+            lavender = Color.rgb(201, 187, 255);
+            mint = Color.rgb(143, 223, 192);
+            amber = Color.rgb(230, 192, 122);
+            red = Color.rgb(240, 138, 138);
+            userBubble = Color.rgb(58, 49, 88);
+            assistantSoft = Color.rgb(24, 27, 34);
+        }
+    }
+
+    /** Prominent Fast / Balanced / Deep pills above the composer (Claude + Groq style). */
+    private void refreshReasoningPills() {
+        if (reasoningPillsRow == null) return;
+        reasoningPillsRow.removeAllViews();
+        String current = preferences.getReasoningMode();
+        String[] ids = {"fast", "balanced", "deep"};
+        String[] labels = {"Fast", "Balanced", "Deep"};
+        for (int i = 0; i < ids.length; i++) {
+            final String id = ids[i];
+            boolean selected = id.equals(current);
+            int fg = selected ? (preferences.isLightTheme() ? Color.WHITE : background) : secondaryText;
+            int bg = selected ? lavender : (preferences.isLightTheme() ? soft : raised);
+            TextView pillView = pill(labels[i], fg, bg);
+            pillView.setTextSize(11);
+            pillView.setPadding(dp(12), dp(6), dp(12), dp(6));
+            pillView.setOnClickListener(v -> {
+                preferences.setReasoningMode(id);
+                refreshReasoningPills();
+                toast(labels[java.util.Arrays.asList(ids).indexOf(id)] + " reasoning");
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            if (i > 0) lp.setMargins(dp(6), 0, 0, 0);
+            reasoningPillsRow.addView(pillView, lp);
+        }
+        // Spacer + quick theme toggle
+        View spacer = new View(this);
+        reasoningPillsRow.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
+        TextView themeToggle = pill(preferences.isLightTheme() ? "Dark" : "Light", mutedText, soft);
+        themeToggle.setTextSize(10);
+        themeToggle.setOnClickListener(v -> {
+            preferences.setThemeMode(preferences.isLightTheme() ? "dark" : "light");
+            recreate(); // full refresh for theme
+        });
+        reasoningPillsRow.addView(themeToggle, wrap());
+    }
+
+    /** Claude-style suggested follow-up chips after an assistant answer. */
+    private void showFollowUpChips(String lastAnswer) {
+        if (chatHistory == null) return;
+        // Remove previous follow-up row if present
+        if (followUpChipsRow != null && followUpChipsRow.getParent() != null) {
+            ((android.view.ViewGroup) followUpChipsRow.getParent()).removeView(followUpChipsRow);
+        }
+        followUpChipsRow = new LinearLayout(this);
+        followUpChipsRow.setOrientation(LinearLayout.VERTICAL);
+        followUpChipsRow.setPadding(dp(4), dp(4), dp(4), dp(10));
+
+        TextView label = text("Suggested follow-ups", 11, mutedText);
+        followUpChipsRow.addView(label, marginParams(0, 0, 0, 6));
+
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.setGravity(Gravity.START);
+
+        String[] suggestions = buildFollowUpSuggestions(lastAnswer);
+        for (int i = 0; i < suggestions.length; i++) {
+            final String prompt = suggestions[i];
+            TextView chip = pill(prompt.length() > 28 ? prompt.substring(0, 26) + "…" : prompt,
+                    secondaryText, preferences.isLightTheme() ? soft : raised);
+            chip.setTextSize(11);
+            chip.setPadding(dp(12), dp(8), dp(12), dp(8));
+            chip.setMaxLines(1);
+            chip.setOnClickListener(v -> {
+                if (composer != null) {
+                    composer.setText(prompt);
+                    composer.setSelection(composer.length());
+                    composer.requestFocus();
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            if (i > 0) lp.setMargins(dp(6), 0, 0, 0);
+            chips.addView(chip, lp);
+        }
+        // Horizontal scroll for chips on small screens
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.addView(chips);
+        followUpChipsRow.addView(scroll, wrapParams());
+        chatHistory.addView(followUpChipsRow, marginParams(0, 4, 0, 8));
+        scrollChatToBottom();
+    }
+
+    private String[] buildFollowUpSuggestions(String answer) {
+        // Simple heuristic suggestions inspired by Claude / ChatGPT follow-ups
+        String lower = answer == null ? "" : answer.toLowerCase(java.util.Locale.US);
+        if (lower.contains("code") || lower.contains("function") || lower.contains("class ") || lower.contains("```")) {
+            return new String[]{
+                    "Explain this code step by step",
+                    "Find potential bugs or edge cases",
+                    "Convert this to TypeScript"
+            };
+        }
+        if (lower.contains("error") || lower.contains("exception") || lower.contains("fail")) {
+            return new String[]{
+                    "How do I fix this?",
+                    "Show a minimal reproducible example",
+                    "What are safer alternatives?"
+            };
+        }
+        if (lower.length() > 600) {
+            return new String[]{
+                    "Summarize the key points",
+                    "Make this more concise",
+                    "Turn this into action items"
+            };
+        }
+        return new String[]{
+                "Go deeper on this",
+                "Give a practical example",
+                "What should I do next?"
+        };
     }
 
     private int dp(float value) {

@@ -18,6 +18,13 @@ public final class AgentCatalog {
                         "Plan · Explain · Review",
                         true),
                 new AgentDefinition(
+                        "devloop",
+                        "Dev Loop Agent",
+                        "PLAN → CODE → TEST → REVIEW → FIX",
+                        "Run a closed engineering loop: plan, implement, test, review, edit, re-test, and debug until the checkpoint passes — without silent writes.",
+                        "Plan · Code · Test · Review · Edit · Debug",
+                        true),
+                new AgentDefinition(
                         "hermes",
                         "Hermes Orchestrator",
                         "PLAN · EXECUTE · REVIEW · HAND OFF",
