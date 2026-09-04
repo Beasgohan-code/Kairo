@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kairo</string>
+    <string name="app_tagline">Your calm, capable AI workspace</string>
+    <string name="app_description">Private-by-default AI chat with models and guarded tools.</string>
+</resources>
