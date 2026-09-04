@@ -22,7 +22,7 @@ Kairo is a provider-neutral Android AI workspace written in Java. It combines a 
 - **Artifact run/check** with a review prompt, private temporary directory, direct runtime invocation when Node, Deno, Python, Java, or Kotlin tooling exists, ten-second timeout, bounded output, and shell syntax checking only. It never downloads runtimes and clearly reports when Android lacks a requested compiler/runtime.
 - **Safe phone assistant** with a Panda-like, review-first screen for opening the browser, Android Settings, Wi-Fi settings, camera, or dialer. Actions use visible Android intents and never silently call, message, read private apps, root, or control the device in the background.
 - **AI action menu** with one-tap prompts for improving writing, explaining code, reviewing bugs/security, generating tests, converting to TypeScript or Kotlin, extracting JSON, summarizing a thread, and creating complete file artifacts.
-- **GitHub Actions** workflow that runs unit tests and uploads `app-debug.apk` for every push, pull request, or manual dispatch; a separate release workflow assembles the release artifact on tags/manual runs.
+- **GitHub Actions** templates in `docs/github-actions/` that run unit tests and upload `app-debug.apk` for every push, pull request, or manual dispatch; a separate release template assembles the release artifact on tags/manual runs. The active `.github/workflows/` copies are withheld from this publish branch until the GitHub App receives `workflows` permission.
 
 ## Build locally
 
@@ -64,7 +64,9 @@ app/src/main/java/com/kairo/app/
 ├── core/                          # Keystore, memory vault, device profile, preferences, history, and artifacts
 ├── data/                          # model, chat, artifact, agent, and connector catalog types
 └── network/                       # provider, search, GitHub, Vercel, n8n, and service REST clients
-.github/workflows/android.yml     # test + APK artifact workflow
+docs/github-actions/android.yml      # publishable CI template
+docs/github-actions/release.yml      # publishable release template
+.github/workflows/                  # local activation copies; requires workflows permission
 ```
 
 ## Security notes
