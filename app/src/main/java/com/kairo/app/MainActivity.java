@@ -4193,22 +4193,24 @@ private void showHermesWorkflow() {
         panel.addView(text("These controls apply to the next live response. Providers may apply their own caps; Kairo clamps values to safe ranges.", 12, secondaryText), wrap());
 
         final String[] selectedStyle = {preferences.getResponseStyle()};
-        TextView styleButton = smallButton(styleLabel(selectedStyle[0]), lavender, view -> {
+        final TextView[] styleButtonRef = new TextView[1];
+        styleButtonRef[0] = smallButton(styleLabel(selectedStyle[0]), lavender, view -> {
             String[] labels = {"Concise", "Balanced", "Detailed"};
             String[] ids = {"concise", "balanced", "detailed"};
             new AlertDialog.Builder(this)
                     .setTitle("Response style")
                     .setItems(labels, (dialog, which) -> {
                         selectedStyle[0] = ids[which];
-                        styleButton.setText(labels[which]);
+                        styleButtonRef[0].setText(labels[which]);
                     })
                     .show();
         });
         panel.addView(text("Response style", 11, mutedText), marginParams(0, 13, 0, 3));
-        panel.addView(styleButton, wrapParams());
+        panel.addView(styleButtonRef[0], wrapParams());
 
         final String[] selectedReasoning = {preferences.getReasoningMode()};
-        TextView reasoningButton = smallButton(reasoningLabel(selectedReasoning[0]), mint, view -> {
+        final TextView[] reasoningButtonRef = new TextView[1];
+        reasoningButtonRef[0] = smallButton(reasoningLabel(selectedReasoning[0]), mint, view -> {
             String[] labels = {"Fast", "Balanced", "Deep"};
             String[] ids = {"fast", "balanced", "deep"};
             new AlertDialog.Builder(this)
@@ -4216,12 +4218,12 @@ private void showHermesWorkflow() {
                     .setMessage("Deep mode asks the selected model for stronger planning and verification. Actual reasoning depth remains provider/model dependent; Kairo never requests hidden chain-of-thought.")
                     .setItems(labels, (dialog, which) -> {
                         selectedReasoning[0] = ids[which];
-                        reasoningButton.setText(labels[which]);
+                        reasoningButtonRef[0].setText(labels[which]);
                     })
                     .show();
         });
         panel.addView(text("Reasoning mode", 11, mutedText), marginParams(0, 10, 0, 3));
-        panel.addView(reasoningButton, wrapParams());
+        panel.addView(reasoningButtonRef[0], wrapParams());
 
         EditText temperature = input("Temperature, 0.0–2.0", false);
         temperature.setSingleLine(true);
