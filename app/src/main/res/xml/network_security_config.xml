@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- HTTPS is used for cloud providers. Cleartext is limited to a user-configured
+         local Ollama endpoint, which is useful when Kairo is paired with a LAN model. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

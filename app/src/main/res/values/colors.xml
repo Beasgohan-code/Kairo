@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="kairo_background">#101114</color>
+    <color name="kairo_surface">#17191E</color>
+    <color name="kairo_surface_raised">#20232A</color>
+    <color name="kairo_surface_soft">#252832</color>
+    <color name="kairo_border">#30343E</color>
+    <color name="kairo_text">#F1F0EC</color>
+    <color name="kairo_text_secondary">#A8A9B2</color>
+    <color name="kairo_text_muted">#72747F</color>
+    <color name="kairo_lavender">#C7B9FF</color>
+    <color name="kairo_lavender_dark">#8B78E6</color>
+    <color name="kairo_mint">#9BE4C3</color>
+    <color name="kairo_amber">#E8C27A</color>
+    <color name="kairo_red">#F38E8E</color>
+</resources>
