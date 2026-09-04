@@ -9,7 +9,6 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -20,14 +19,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Direct web search with an optional Brave API key and a no-key DuckDuckGo fallback. Results are
- * shown to the user before they can be inserted into a prompt; Kairo never silently browses.
+ * Direct web search with an optional Brave API key and a no-key DuckDuckGo fallback.
+ * Results are shown before insert into a prompt.
  */
 public final class WebSearchClient {
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
 
     public interface Callback {
         void onSuccess(List<SearchResult> results, String provider);
+
         void onError(String message);
     }
 
@@ -35,7 +35,9 @@ public final class WebSearchClient {
         EXECUTOR.execute(() -> {
             try {
                 String clean = query == null ? "" : query.trim();
-                if (clean.isEmpty()) throw new IllegalArgumentException("Enter a search query.");
+                if (clean.isEmpty()) {
+                    throw new IllegalArgumentException("Enter a search query.");
+                }
                 if (braveKey != null && !braveKey.trim().isEmpty()) {
                     callback.onSuccess(searchBrave(clean, braveKey.trim()), "Brave Search");
                 } else {
@@ -58,19 +60,31 @@ public final class WebSearchClient {
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("X-Subscription-Token", key);
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
             int status = connection.getResponseCode();
-            String body = read(status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream());
-            if (status < 200 || status >= 300) throw new IllegalStateException("Search HTTP " + status + ".");
+            InputStream stream = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream();
+            String body = read(stream);
+            if (status < 200 || status >= 300) {
+                throw new IllegalStateException("Brave Search HTTP " + status + ": " + body);
+            }
             JSONObject root = new JSONObject(body);
             JSONObject web = root.optJSONObject("web");
             JSONArray results = web == null ? null : web.optJSONArray("results");
-            if (results == null) return new ArrayList<>();
             List<SearchResult> output = new ArrayList<>();
-            for (int index = 0; index < Math.min(8, results.length()); index++) {
-                JSONObject item = results.optJSONObject(index);
-                if (item == null) continue;
-                output.add(new SearchResult(item.optString("title", "Untitled"),
-                        item.optString("url", ""), item.optString("description", ""), "Brave"));
+            if (results != null) {
+                for (int i = 0; i < results.length(); i++) {
+                    JSONObject item = results.optJSONObject(i);
+                    if (item == null) continue;
+                    output.add(new SearchResult(
+                            item.optString("title", "Untitled"),
+                            item.optString("url", ""),
+                            item.optString("description", item.optString("snippet", "")),
+                            "Brave"));
+                }
+            }
+            if (output.isEmpty()) {
+                output.add(new SearchResult("No Brave results", "", "Try another query.", "Brave"));
             }
             return output;
         } finally {
@@ -81,7 +95,7 @@ public final class WebSearchClient {
     private List<SearchResult> searchDuckDuckGo(String query) throws Exception {
         String endpoint = "https://api.duckduckgo.com/?q="
                 + URLEncoder.encode(query, StandardCharsets.UTF_8.name())
-                + "&format=json&no_html=1&skip_disambig=0";
+                + "&format=json&no_html=1&skip_disambig=1";
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(endpoint).openConnection();
@@ -89,16 +103,34 @@ public final class WebSearchClient {
             connection.setConnectTimeout(15_000);
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) throw new IllegalStateException("Search HTTP " + status + ".");
-            JSONObject root = new JSONObject(read(connection.getInputStream()));
+            InputStream stream = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream();
+            String body = read(stream);
+            if (status < 200 || status >= 300) {
+                throw new IllegalStateException("DuckDuckGo HTTP " + status);
+            }
+            JSONObject root = new JSONObject(body);
             List<SearchResult> output = new ArrayList<>();
+            String heading = root.optString("Heading", "");
             String abstractText = root.optString("AbstractText", "");
             String abstractUrl = root.optString("AbstractURL", "");
-            if (!abstractText.isEmpty() && !abstractUrl.isEmpty()) {
-                output.add(new SearchResult(root.optString("Heading", query), abstractUrl, abstractText, "DuckDuckGo"));
+            if (!abstractText.isEmpty()) {
+                output.add(new SearchResult(
+                        heading.isEmpty() ? query : heading,
+                        abstractUrl,
+                        abstractText,
+                        "DuckDuckGo"));
             }
             addTopics(root.optJSONArray("RelatedTopics"), output, 8);
+            if (output.isEmpty()) {
+                output.add(new SearchResult(
+                        "No instant answer",
+                        "https://duckduckgo.com/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8.name()),
+                        "Open DuckDuckGo for full results.",
+                        "DuckDuckGo"));
+            }
             return output;
         } finally {
             if (connection != null) connection.disconnect();
@@ -123,9 +155,12 @@ public final class WebSearchClient {
     private String read(InputStream stream) throws Exception {
         if (stream == null) return "";
         StringBuilder result = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) result.append(line);
+            while ((line = reader.readLine()) != null) {
+                result.append(line);
+            }
         }
         return result.toString();
     }

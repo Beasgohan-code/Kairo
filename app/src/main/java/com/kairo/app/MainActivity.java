@@ -82,6 +82,7 @@ import com.kairo.app.network.SlackClient;
 import com.kairo.app.network.SupabaseClient;
 import com.kairo.app.network.VercelClient;
 import com.kairo.app.network.ImageGenerationClient;
+import com.kairo.app.network.WebSearchClient;
 import com.kairo.app.ui.MarkdownRenderer;
 import com.kairo.app.ui.UiEffects;
 
@@ -373,6 +374,10 @@ public class MainActivity extends Activity {
             activeSessionId = ConversationStore.newId();
             activeSessionTitle = "New conversation";
         }
+    }
+
+    private void openSession(ConversationSession session, boolean refreshUi) {
+        activateSession(session, refreshUi);
     }
 
     private void activateSession(ConversationSession session, boolean refreshUi) {
