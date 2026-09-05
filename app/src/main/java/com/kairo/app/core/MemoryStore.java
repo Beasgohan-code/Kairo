@@ -132,10 +132,23 @@ public final class MemoryStore {
         String value = text.trim();
         if (value.isEmpty() || ApiKeyDetector.detect(value) != null) return "";
         String lower = value.toLowerCase(Locale.US);
+        // Keep whole preference-style statements (matches product + unit tests).
+        String[] wholeStatementTriggers = {
+                "i prefer ", "i use ", "always use "
+        };
+        for (String trigger : wholeStatementTriggers) {
+            if (lower.startsWith(trigger)) {
+                String candidate = value;
+                while (candidate.endsWith(".")) candidate = candidate.substring(0, candidate.length() - 1).trim();
+                if (candidate.isEmpty() || candidate.length() > 500
+                        || ApiKeyDetector.detect(candidate) != null) return "";
+                return candidate;
+            }
+        }
         String[] triggers = {
                 "remember that ", "remember: ", "please remember ", "my name is ",
-                "i prefer ", "i use ", "my project is ", "my timezone is ",
-                "always use ", "when i ask for code, "
+                "my project is ", "my timezone is ",
+                "when i ask for code, "
         };
         for (String trigger : triggers) {
             if (lower.startsWith(trigger)) {

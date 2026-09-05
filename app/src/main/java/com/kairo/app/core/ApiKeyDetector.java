@@ -15,7 +15,7 @@ public final class ApiKeyDetector {
             new Rule("anthropic", "Anthropic", Pattern.compile("\\b(sk-ant-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("openrouter", "OpenRouter", Pattern.compile("\\b(sk-or-v1-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("groq", "Groq", Pattern.compile("\\b(gsk_[A-Za-z0-9_-]{20,})\\b")),
-            new Rule("nvidia", "NVIDIA", Pattern.compile("\\b(nvapi-[A-Za-z0-9_-]{20,})\\b")),
+            new Rule("nvidia", "NVIDIA", Pattern.compile("\\b(nvapi[-_][A-Za-z0-9_-]{20,})\\b")),
             new Rule("openai", "OpenAI", Pattern.compile("\\b(sk-proj-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("openai", "OpenAI", Pattern.compile("\\b(sk-svcacct-[A-Za-z0-9_-]{20,})\\b")),
             new Rule("huggingface", "Hugging Face", Pattern.compile("\\b(hf_[A-Za-z0-9]{20,})\\b")),
