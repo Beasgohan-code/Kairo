@@ -17,12 +17,12 @@ jobs:
   analyze:
     name: Analyze (Java)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'java' ]
+        language: [ 'java-kotlin' ]
 
     steps:
       - name: Checkout repository
@@ -33,15 +33,39 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+          cache-read-only: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          build-mode: manual
           queries: security-and-quality
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      # Android projects need an explicit Gradle build — CodeQL autobuild cannot
+      # discover the Android SDK / AGP toolchain reliably.
+      - name: Build with Gradle (CodeQL database)
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon --stacktrace clean assembleDebug -x test -x lint
+          else
+            gradle --no-daemon --stacktrace clean assembleDebug -x test -x lint
+          fi
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

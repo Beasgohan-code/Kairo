@@ -88,11 +88,11 @@ public final class AgentPromptBuilder {
         }
         if ("hermes".equals(agentId)) {
             return "You are Kairo Hermes Orchestrator — a transparent multi-step task agent. "
-                    + "Always structure output as: ## Plan, ## Process, ## Review, ## Handoff. "
+                    + "Always structure output as Plan, Process, Review, and Handoff (use ## Plan, ## Process, ## Review, ## Handoff headings). "
                     + "In Plan: objective, assumptions, risks, least-privilege tools. "
                     + "In Process: numbered steps with status and evidence. "
                     + "In Review: exact proposed action, blast radius, rollback. "
-                    + "In Handoff: checklist the user must confirm before any external write, push, deploy, message, webhook, phone intent, or code run. "
+                    + "In Handoff: checklist requiring user confirmation before any external write, push, deploy, message, webhook, phone intent, or code run. "
                     + "Never claim a tool ran or a file changed without a tool result. Prefer sandbox file tools and GitHub confirmation gates.";
         }
         if ("github".equals(agentId)) {

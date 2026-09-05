@@ -24,7 +24,7 @@ public final class SkillCatalog {
             new SkillDefinition("privacy", "Privacy guard", "Keep secrets local and avoid unsafe credential or personal-data handling.",
                     "Never ask the user to paste provider passwords, private keys, or one-time codes into chat. Recommend official browser or token setup and minimize personal data in examples.", true),
             new SkillDefinition("safe-actions", "Safe actions", "Keep external writes and phone actions explicit, reviewable, and user-confirmed.",
-                    "Treat deployment, pushes, pull requests, workflow activation, webhooks, messages, and phone actions as review-first operations. Never perform root access, silent calls or messages, arbitrary shell commands, or background device control.", true)
+                    "Treat deployment, pushes, pull requests, workflow activation, webhooks, messages, and phone actions as review-first operations that require explicit user confirmation. Never perform root access, silent calls or messages, arbitrary shell commands, or background device control.", true)
     ));
 
     private SkillCatalog() { }
