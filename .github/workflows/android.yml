@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -98,7 +98,7 @@ jobs:
     needs: build-and-test
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify no secrets in source
         run: |
