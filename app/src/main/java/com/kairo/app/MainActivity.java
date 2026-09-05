@@ -2127,7 +2127,7 @@ public class MainActivity extends Activity {
         content.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
     }
 
-private void showHermesWorkflow() {
+    private void showHermesWorkflow() {
         closeDrawer();
         setActiveTab(TAB_AGENTS);
         content.removeAllViews();
@@ -5687,7 +5687,7 @@ private void showHermesWorkflow() {
         toast("Metadata only — raw keys never exported");
     }
 
-private void applyThemeColors() {
+    private void applyThemeColors() {
         if (preferences != null && preferences.isLightTheme()) {
             // Light theme – clean Claude/Groq inspired
             background = Color.rgb(250, 249, 247);

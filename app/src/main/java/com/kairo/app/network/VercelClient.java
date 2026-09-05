@@ -14,10 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Small Vercel REST adapter. Read operations are safe to run from the Connectors screen;
- * deployment creation is only called by an explicit confirmation action in the UI.
- */
+/** Small Vercel REST adapter. Deployments require explicit confirmation in the UI. */
 public final class VercelClient {
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
 
@@ -30,18 +27,26 @@ public final class VercelClient {
     public void listProjects(String token, String baseUrl, String teamId, Callback callback) {
         run(() -> {
             String path = "/v9/projects?limit=20";
-            if (teamId != null && !teamId.trim().isEmpty()) path += "&teamId=" + encode(teamId.trim());
+            if (teamId != null && !teamId.trim().isEmpty()) {
+                path += "&teamId=" + encode(teamId.trim());
+            }
             JSONObject root = requestJson(token, baseUrl, path, "GET", null);
             JSONArray projects = root.optJSONArray("projects");
-            if (projects == null || projects.length() == 0) return "No Vercel projects found.";
+            if (projects == null || projects.length() == 0) {
+                return "No Vercel projects found.";
+            }
             StringBuilder output = new StringBuilder("Vercel projects\n");
             for (int index = 0; index < projects.length(); index++) {
                 JSONObject project = projects.optJSONObject(index);
-                if (project == null) continue;
+                if (project == null) {
+                    continue;
+                }
                 output.append("• ").append(project.optString("name", "Unnamed project"))
                         .append("  ·  ").append(project.optString("id", "no project id"));
                 String framework = project.optString("framework", "");
-                if (!framework.isEmpty()) output.append("  ·  ").append(framework);
+                if (!framework.isEmpty()) {
+                    output.append("  ·  ").append(framework);
+                }
                 output.append('\n');
             }
             return output.toString().trim();
@@ -56,21 +61,29 @@ public final class VercelClient {
             Callback callback) {
         run(() -> {
             String path = "/v6/deployments?limit=20";
-            if (teamId != null && !teamId.trim().isEmpty()) path += "&teamId=" + encode(teamId.trim());
+            if (teamId != null && !teamId.trim().isEmpty()) {
+                path += "&teamId=" + encode(teamId.trim());
+            }
             if (project != null && !project.trim().isEmpty()) {
                 path += "&projectId=" + encode(project.trim());
             }
             JSONObject root = requestJson(token, baseUrl, path, "GET", null);
             JSONArray deployments = root.optJSONArray("deployments");
-            if (deployments == null || deployments.length() == 0) return "No deployments found.";
+            if (deployments == null || deployments.length() == 0) {
+                return "No deployments found.";
+            }
             StringBuilder output = new StringBuilder("Recent deployments\n");
             for (int index = 0; index < deployments.length(); index++) {
                 JSONObject d = deployments.optJSONObject(index);
-                if (d == null) continue;
+                if (d == null) {
+                    continue;
+                }
                 output.append("• ").append(d.optString("name", d.optString("id", "deployment")))
                         .append("  ·  ").append(d.optString("state", d.optString("readyState", "?")));
                 String url = d.optString("url", "");
-                if (!url.isEmpty()) output.append("  ·  https://").append(url);
+                if (!url.isEmpty()) {
+                    output.append("  ·  https://").append(url);
+                }
                 output.append('\n');
             }
             return output.toString().trim();
@@ -103,7 +116,9 @@ public final class VercelClient {
             body.put("target", "production");
             body.put("gitSource", gitSource);
             String path = "/v13/deployments";
-            if (teamId != null && !teamId.trim().isEmpty()) path += "?teamId=" + encode(teamId.trim());
+            if (teamId != null && !teamId.trim().isEmpty()) {
+                path += "?teamId=" + encode(teamId.trim());
+            }
             JSONObject result = requestJson(token, baseUrl, path, "POST", body);
             String url = result.optString("url", "");
             String id = result.optString("id", "unknown");
@@ -129,8 +144,7 @@ public final class VercelClient {
 
     private JSONObject requestJson(String token, String baseUrl, String path, String method, JSONObject body)
             throws Exception {
-        String response = request(token, baseUrl, path, method, body);
-        return new JSONObject(response);
+        return new JSONObject(request(token, baseUrl, path, method, body));
     }
 
     private String request(String token, String baseUrl, String path, String method, JSONObject body)
@@ -142,7 +156,9 @@ public final class VercelClient {
         if (!(base.startsWith("https://") || base.startsWith("http://"))) {
             throw new IllegalArgumentException("Vercel API URL must start with http:// or https://.");
         }
-        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(base + path).openConnection();
@@ -152,7 +168,7 @@ public final class VercelClient {
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.8");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
@@ -167,27 +183,37 @@ public final class VercelClient {
             if (status < 200 || status >= 300) {
                 String detail = response;
                 try {
-                    detail = new JSONObject(response).optString("error", response);
-                    if (detail.startsWith("{")) {
-                        detail = new JSONObject(detail).optString("message", detail);
+                    JSONObject err = new JSONObject(response);
+                    Object e = err.opt("error");
+                    if (e instanceof JSONObject) {
+                        detail = ((JSONObject) e).optString("message", response);
+                    } else if (e != null) {
+                        detail = String.valueOf(e);
                     }
                 } catch (Exception ignored) {
+                    // keep raw response
                 }
                 throw new IllegalStateException("Vercel HTTP " + status + ": " + detail);
             }
             return response;
         } finally {
-            if (connection != null) connection.disconnect();
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 
     private static String read(InputStream stream) throws Exception {
-        if (stream == null) return "";
+        if (stream == null) {
+            return "";
+        }
         StringBuilder result = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) result.append(line);
+            while ((line = reader.readLine()) != null) {
+                result.append(line);
+            }
         }
         return result.toString();
     }
