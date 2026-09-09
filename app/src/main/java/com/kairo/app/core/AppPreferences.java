@@ -155,7 +155,7 @@ public final class AppPreferences {
         if (preferences.contains(KEY_ENABLED_SKILLS)) {
             if (stored != null && !stored.isEmpty()) {
                 for (String value : stored.split(SKILL_SEPARATOR)) {
-                    if (SkillCatalog.find(value) != null) requested.add(value);
+                    if (isKnownSkillId(value)) requested.add(value);
                 }
             }
         } else {
@@ -165,6 +165,9 @@ public final class AppPreferences {
         for (com.kairo.app.data.SkillDefinition skill : SkillCatalog.all()) {
             if (requested.contains(skill.getId())) result.add(skill.getId());
         }
+        for (String id : requested) {
+            if (SkillCreator.isCustomId(id) && !result.contains(id)) result.add(id);
+        }
         return result;
     }
 
@@ -172,7 +175,7 @@ public final class AppPreferences {
         Set<String> requested = new LinkedHashSet<>();
         if (skillIds != null) {
             for (String value : skillIds) {
-                if (SkillCatalog.find(value) != null) requested.add(value);
+                if (isKnownSkillId(value)) requested.add(value);
             }
         }
         StringBuilder serialized = new StringBuilder();
@@ -375,6 +378,10 @@ public final class AppPreferences {
 
     public void setWhatsNewSeen(String version) {
         preferences.edit().putString(KEY_WHATS_NEW_SEEN, version == null ? "" : version).apply();
+    }
+
+    private boolean isKnownSkillId(String id) {
+        return SkillCatalog.find(id) != null || SkillCreator.isCustomId(id);
     }
 
     private String normalizeUrl(String value) {

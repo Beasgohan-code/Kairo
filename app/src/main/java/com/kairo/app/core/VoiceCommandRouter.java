@@ -28,6 +28,8 @@ public final class VoiceCommandRouter {
         GROQ,
         ASTRA,
         CLAUDE,
+        CREATE_SKILL,
+        SKILLS,
         SEND,
         DICTATE
     }
@@ -119,6 +121,12 @@ public final class VoiceCommandRouter {
         }
         if (phrase(lower, "use claude") || command(lower, "anthropic")) {
             return new Result(Action.CLAUDE, raw);
+        }
+        if (phrase(lower, "create skill", "skill creator", "new skill", "compile a skill")) {
+            return new Result(Action.CREATE_SKILL, raw);
+        }
+        if (phrase(lower, "open skills", "skills and language", "skills settings")) {
+            return new Result(Action.SKILLS, raw);
         }
         if ((command(lower, "send") || command(lower, "go")) && lower.length() <= 8) {
             return new Result(Action.SEND, raw);

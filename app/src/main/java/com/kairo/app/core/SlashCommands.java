@@ -71,6 +71,8 @@ public final class SlashCommands {
         COMMANDS.put("/json", "Extract structured JSON");
         COMMANDS.put("/file", "Create a complete file artifact");
         COMMANDS.put("/summarize", "Summarize this conversation");
+        COMMANDS.put("/skill-creator", "Compile a custom skill from a brief");
+        COMMANDS.put("/skills", "Open Skills & language");
         COMMANDS.put("/arena", "Open dual-model Arena");
         COMMANDS.put("/search", "Open web search");
     }
@@ -145,6 +147,13 @@ public final class SlashCommands {
                 return agent("chat",
                         "Summarize this conversation with decisions, open questions, risks, and the next practical steps:",
                         false);
+            case "/skill-creator":
+            case "/skillcreator":
+            case "/new-skill":
+            case "/skill":
+                return new Result(true, true, rest, null, null, "skill-creator");
+            case "/skills":
+                return new Result(true, true, "", null, null, "skills");
             case "/arena":
                 return new Result(true, true, rest, null, null, "arena");
             case "/search":
@@ -167,9 +176,10 @@ public final class SlashCommands {
         sb.append("Slash commands (parsed on this device, never sent as a secret):\n");
         for (Map.Entry<String, String> entry : COMMANDS.entrySet()) {
             sb.append("  ").append(entry.getKey());
-            for (int i = entry.getKey().length(); i < 12; i++) sb.append(' ');
+            for (int i = entry.getKey().length(); i < 16; i++) sb.append(' ');
             sb.append(entry.getValue()).append('\n');
         }
+        sb.append("\n/skill-creator <brief>  compiles a reviewable skill. It never grants tools.");
         sb.append("\nUnknown /commands are sent as normal text.");
         return sb.toString().trim();
     }

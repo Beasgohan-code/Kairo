@@ -49,6 +49,8 @@ import com.kairo.app.core.AppPreferences;
 import com.kairo.app.core.ArtifactStore;
 import com.kairo.app.core.CodeFenceExtractor;
 import com.kairo.app.core.ConversationSearch;
+import com.kairo.app.core.CustomSkillStore;
+import com.kairo.app.core.SkillCreator;
 import com.kairo.app.core.ConversationStore;
 import com.kairo.app.core.DeviceSetupStore;
 import com.kairo.app.core.ApiKeyDetector;
@@ -131,6 +133,7 @@ public class MainActivity extends Activity {
     private MemoryStore memoryStore;
     private DeviceSetupStore deviceSetup;
     private ArtifactStore artifactStore;
+    private CustomSkillStore customSkillStore;
     private UsageTracker usageTracker;
     private AgentOrchestrator orchestrator;
     private CodeRunner codeRunner;
@@ -312,6 +315,7 @@ public class MainActivity extends Activity {
         memoryStore = new MemoryStore(this);
         deviceSetup = new DeviceSetupStore(this);
         artifactStore = new ArtifactStore(this);
+        customSkillStore = new CustomSkillStore(this);
         usageTracker = new UsageTracker(this);
         orchestrator = new AgentOrchestrator();
         codeRunner = orchestrator.codeRunner();
@@ -645,6 +649,7 @@ public class MainActivity extends Activity {
         panel.addView(drawerLink("⚔  Arena", view -> showArena()), wrapParams());
         panel.addView(drawerLink("▣  Artifacts", view -> showArtifacts()), wrapParams());
         panel.addView(drawerLink("✦  Memories", view -> showMemories()), wrapParams());
+        panel.addView(drawerLink("⚒  Skill creator", view -> showSkillCreator("")), wrapParams());
         panel.addView(drawerLink("⌘  Agents", view -> showAgents()), wrapParams());
         panel.addView(drawerLink("✧  Hermes", view -> showHermesWorkflow()), wrapParams());
         panel.addView(drawerLink("↻  Dev Loop", view -> showDevLoop()), wrapParams());
@@ -832,7 +837,7 @@ public class MainActivity extends Activity {
         composer = new EditText(this);
         composer.setTextColor(primaryText);
         composer.setHintTextColor(mutedText);
-        composer.setHint("Ask Kairo…  ·  try /help");
+        composer.setHint("Ask Kairo…  ·  /help  ·  /skill-creator");
         composer.setTextSize(15);
         composer.setGravity(Gravity.TOP | Gravity.START);
         composer.setMinLines(1);
@@ -1007,6 +1012,8 @@ public class MainActivity extends Activity {
                 "How to create a REST API in Java using Spring Boot? Include controllers, DTOs, and a minimal service.");
         addSuggestionChip(welcome, "Optimize a C++ hot path",
                 "Write a clear, safe C++ snippet for a performance-critical path with complexity notes.");
+        addSuggestionChip(welcome, "Create a staff-engineer skill",
+                "/skill-creator Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty.");
 
         if (!deviceSetup.isSetupComplete()) {
             LinearLayout status = card();
@@ -1347,6 +1354,16 @@ public class MainActivity extends Activity {
                 showWebSearch();
                 return;
             }
+            if ("skill-creator".equals(slash.getHelpTopic())) {
+                composer.setText("");
+                showSkillCreator(slash.getPrompt());
+                return;
+            }
+            if ("skills".equals(slash.getHelpTopic())) {
+                composer.setText("");
+                showSkillsSettings();
+                return;
+            }
             if (slash.isConsumeOnly()) {
                 composer.setText("");
                 toast(slash.getReasoningMode() == null ? "Command applied" : (reasoningLabel(slash.getReasoningMode()) + " reasoning"));
@@ -1430,7 +1447,8 @@ public class MainActivity extends Activity {
         requestMessages.add(new ChatMessage("system", AgentPromptBuilder.systemPrompt(
                 activeAgentId, preferences.getEnabledSkills(), preferences.getLanguagePreset(),
                 preferences.getResponseStyle(), preferences.getReasoningMode(), memoryStore.promptContext(),
-                preferences.getSystemInstructions())));
+                preferences.getSystemInstructions(),
+                customSkillStore == null ? java.util.Collections.emptyList() : customSkillStore.all())));
         requestMessages.addAll(conversation);
         activeRequest = ApiClient.sendChatStreaming(
                 provider,
@@ -1654,7 +1672,8 @@ public class MainActivity extends Activity {
                 "AI actions", "Skills & language", "Memories",
                 "Find in chat", "Edit last message", "Duplicate conversation",
                 "Rename conversation", "Pin / unpin", "Share transcript",
-                "Speak last answer", "Slash help", "Clear messages", "Search sessions"
+                "Speak last answer", "Slash help", "Clear messages", "Search sessions",
+                "Skill creator"
         };
         new AlertDialog.Builder(this)
                 .setTitle(activeSessionTitle)
@@ -1678,6 +1697,7 @@ public class MainActivity extends Activity {
                     else if (which == 10) showSlashHelp();
                     else if (which == 11) confirmClearConversation();
                     else if (which == 12) showSessionSearch();
+                    else if (which == 13) showSkillCreator("");
                 })
                 .show();
     }
@@ -1835,7 +1855,8 @@ public class MainActivity extends Activity {
                 "🎙  Voice assistant",
                 "Connectors  ·  GitHub, Vercel, n8n",
                 "Safe phone  ·  visible actions",
-                "Hermes  ·  plan and hand off"
+                "Hermes  ·  plan and hand off",
+                "⚒  Skill creator"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Tools & AI menus")
@@ -1876,6 +1897,7 @@ public class MainActivity extends Activity {
                     else if (which == 14) showConnectors();
                     else if (which == 15) showPhoneControl();
                     else if (which == 16) showHermesWorkflow();
+                    else if (which == 17) showSkillCreator("");
                 }).show();
     }
 
@@ -4762,7 +4784,7 @@ public class MainActivity extends Activity {
 
         LinearLayout intro = card();
         intro.setPadding(dp(14), dp(12), dp(14), dp(12));
-        intro.addView(text("Skills are fixed, inspectable instructions. They change response style and safety posture only; they never enable arbitrary commands, network calls, phone actions, or external writes.", 12, secondaryText), wrap());
+        intro.addView(text("Built-in skills are a fixed catalog. Custom skills from /skill-creator are compiled on-device into a reviewable card. Both only change wording; they never enable commands, network calls, phone actions, or external writes.", 12, secondaryText), wrap());
         page.addView(intro, marginParams(0, 0, 0, 12));
 
         Set<String> selected = new LinkedHashSet<>(preferences.getEnabledSkills());
@@ -4790,16 +4812,240 @@ public class MainActivity extends Activity {
             row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
             skillBody.addView(row, marginParams(0, 0, 0, 8));
         }
+        skillBody.addView(sectionLabel("YOUR SKILLS"), marginParams(0, 14, 0, 8));
+        List<SkillDefinition> customSkills = customSkillStore == null
+                ? Collections.emptyList() : customSkillStore.all();
+        if (customSkills.isEmpty()) {
+            skillBody.addView(text("None yet. Compile a brief with /skill-creator — you review the card before it is saved. Skills never grant tools.", 12, mutedText), marginParams(0, 0, 0, 8));
+        } else {
+            for (SkillDefinition skill : customSkills) {
+                LinearLayout row = card();
+                row.setPadding(dp(10), dp(8), dp(9), dp(8));
+                CheckBox check = new CheckBox(this);
+                check.setButtonTintList(android.content.res.ColorStateList.valueOf(lavender));
+                check.setChecked(selected.contains(skill.getId()));
+                check.setContentDescription("Enable " + skill.getName());
+                check.setOnCheckedChangeListener((button, checked) -> {
+                    if (checked) selected.add(skill.getId());
+                    else selected.remove(skill.getId());
+                });
+                row.addView(check, new LinearLayout.LayoutParams(dp(42), dp(42)));
+                LinearLayout labels = new LinearLayout(this);
+                labels.setOrientation(LinearLayout.VERTICAL);
+                TextView title = text(skill.getName(), 14, primaryText);
+                title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                labels.addView(title, wrap());
+                labels.addView(text(skill.getDescription(), 11, secondaryText), marginParams(0, 3, 0, 0));
+                labels.addView(text(skill.getId() + "  ·  wording only", 10, mutedText), marginParams(0, 3, 0, 0));
+                row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+                LinearLayout actions = new LinearLayout(this);
+                actions.setOrientation(LinearLayout.VERTICAL);
+                actions.addView(smallButton("Inspect", lavender, view -> showSkillInspect(skill)), wrap());
+                actions.addView(smallButton("Delete", red, view -> confirmDeleteCustomSkill(skill, selected)), marginParams(0, 5, 0, 0));
+                row.addView(actions, wrap());
+                skillBody.addView(row, marginParams(0, 0, 0, 8));
+            }
+        }
         ScrollView scroll = new ScrollView(this);
         scroll.addView(skillBody, new ScrollView.LayoutParams(-1, -2));
         page.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView save = smallButton("Save skills", mint, view -> {
+        LinearLayout skillActions = new LinearLayout(this);
+        skillActions.setGravity(Gravity.END);
+        skillActions.addView(smallButton("Create skill", lavender, view -> showSkillCreator("")), wrap());
+        skillActions.addView(smallButton("Save skills", mint, view -> {
             preferences.setEnabledSkills(new ArrayList<>(selected));
             toast(selected.size() + " skills enabled");
             showSettings();
-        });
-        page.addView(save, marginParams(0, 8, 0, 4));
+        }), marginWrapParams(8, 0, 0, 0));
+        page.addView(skillActions, marginParams(0, 8, 0, 4));
         content.addView(page, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+    private void showSkillCreator(String brief) {
+        closeDrawer();
+        String seed = brief == null ? "" : brief.trim();
+        if (seed.isEmpty()) {
+            showSkillCreatorBrief("");
+            return;
+        }
+        SkillCreator.Draft draft = SkillCreator.compile(seed);
+        if (!draft.isOk()) {
+            toast(draft.getError());
+            showSkillCreatorBrief(seed);
+            return;
+        }
+        showSkillCreatorReview(draft, seed);
+    }
+
+    private void showSkillCreatorBrief(String seed) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(2), dp(4), dp(2), 0);
+        panel.addView(text("Describe how Kairo should answer. The compiler turns the brief into a named skill card — id, purpose, operating procedure, and guardrails — that you review before anything is saved.", 12, secondaryText), wrap());
+        panel.addView(text("Skills only shape wording. They cannot run tools, write files, call the network, or control the phone.", 11, mint), marginParams(0, 8, 0, 10));
+
+        EditText brief = input("e.g. Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty.", false);
+        brief.setSingleLine(false);
+        brief.setMinLines(4);
+        brief.setMaxLines(8);
+        brief.setGravity(Gravity.TOP | Gravity.START);
+        if (seed != null && !seed.isEmpty()) {
+            brief.setText(seed);
+            brief.setSelection(brief.length());
+        }
+
+        HorizontalScrollView chipsScroll = new HorizontalScrollView(this);
+        chipsScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        String[][] templates = {
+                {"Staff engineer", "Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty."},
+                {"Security review", "Review like an application-security engineer: realistic exploit path, blast radius, then a concrete mitigation. Do not invent CVEs."},
+                {"Incident lead", "Respond as an incident commander: timeline, hypothesis, smallest check, blast radius. Do not declare root cause without evidence."},
+                {"Code reviewer", "Review diffs like a staff reviewer: blockers versus nits, quote the snippet, suggest a patch."},
+                {"Teacher", "Teach as a patient senior: start from the reader's current model, one analogy, then the precise version, then a check question."},
+                {"Technical editor", "Edit for a precise technical voice: cut filler, prefer specific verbs, keep every claim scoped."}
+        };
+        for (int i = 0; i < templates.length; i++) {
+            final String template = templates[i][1];
+            TextView chip = pill(templates[i][0], secondaryText, raised);
+            chip.setTextSize(11);
+            chip.setOnClickListener(v -> {
+                brief.setText(template);
+                brief.setSelection(brief.length());
+            });
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, dp(34));
+            if (i > 0) clp.setMargins(dp(6), 0, 0, 0);
+            chips.addView(chip, clp);
+        }
+        chipsScroll.addView(chips);
+        panel.addView(text("STARTERS", 10, mutedText), marginParams(0, 0, 0, 6));
+        panel.addView(chipsScroll, marginParams(0, 0, 0, 10));
+        panel.addView(brief, wrapParams());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        new AlertDialog.Builder(this)
+                .setTitle("Skill creator")
+                .setView(scroll)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Compile skill", (d, w) -> showSkillCreator(brief.getText().toString()))
+                .show();
+    }
+
+    private void showSkillCreatorReview(SkillCreator.Draft draft, String originalBrief) {
+        if (draft == null || !draft.isOk() || draft.getSkill() == null) {
+            toast("Could not compile that skill");
+            return;
+        }
+        SkillDefinition skill = draft.getSkill();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(2), dp(4), dp(2), 0);
+
+        TextView card = text(draft.getCard(), 12, secondaryText);
+        card.setTextIsSelectable(true);
+        card.setPadding(dp(12), dp(11), dp(12), dp(11));
+        card.setBackground(accentSoft(lavender));
+        panel.addView(card, wrapParams());
+        panel.addView(text("Review every field. Saving stores the skill on this device and enables it for the next reply. Nothing is sent until you confirm.", 11, mutedText), marginParams(0, 10, 0, 10));
+
+        panel.addView(text("Name", 11, mutedText), wrap());
+        EditText name = input("Skill name", false);
+        name.setSingleLine(true);
+        name.setText(skill.getName());
+        name.setSelection(name.length());
+        panel.addView(name, marginParams(0, 4, 0, 8));
+
+        panel.addView(text("Purpose", 11, mutedText), wrap());
+        EditText description = input("One-line description", false);
+        description.setSingleLine(false);
+        description.setMinLines(2);
+        description.setText(skill.getDescription());
+        panel.addView(description, marginParams(0, 4, 0, 8));
+
+        panel.addView(text("Operating procedure", 11, mutedText), wrap());
+        EditText instruction = input("Instruction", false);
+        instruction.setSingleLine(false);
+        instruction.setMinLines(8);
+        instruction.setGravity(Gravity.TOP | Gravity.START);
+        instruction.setText(skill.getInstruction());
+        panel.addView(instruction, marginParams(0, 4, 0, 8));
+        panel.addView(text("Guardrails stay attached: no tools, no secrets, no fake writes.", 10, mint), wrap());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Review skill")
+                .setView(scroll)
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Edit brief", (d, w) -> showSkillCreatorBrief(originalBrief))
+                .setPositiveButton("Save & enable", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            SkillCreator.Draft edited = SkillCreator.fromFields(
+                    skill.getId(),
+                    name.getText().toString(),
+                    description.getText().toString(),
+                    instruction.getText().toString());
+            if (!edited.isOk()) {
+                toast(edited.getError());
+                return;
+            }
+            try {
+                customSkillStore.save(edited.getSkill());
+            } catch (Exception exception) {
+                toast(exception.getMessage() == null ? "Could not save skill" : exception.getMessage());
+                return;
+            }
+            List<String> enabled = new ArrayList<>(preferences.getEnabledSkills());
+            if (!enabled.contains(edited.getSkill().getId())) {
+                enabled.add(edited.getSkill().getId());
+            }
+            preferences.setEnabledSkills(enabled);
+            dialog.dismiss();
+            toast("Skill saved · “" + edited.getSkill().getName() + "” enabled");
+        }));
+        dialog.show();
+    }
+
+    private void showSkillInspect(SkillDefinition skill) {
+        if (skill == null) return;
+        TextView body = text(skill.getName() + "\n" + skill.getId() + "\n\n"
+                + skill.getDescription() + "\n\n" + skill.getInstruction(), 13, secondaryText);
+        body.setTextIsSelectable(true);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setPadding(dp(20), dp(8), dp(20), dp(8));
+        scroll.addView(body);
+        new AlertDialog.Builder(this)
+                .setTitle("Skill card")
+                .setMessage("Wording only. This skill cannot run tools, write files, or send network requests.")
+                .setView(scroll)
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Edit", (d, w) -> {
+                    SkillCreator.Draft draft = SkillCreator.fromFields(
+                            skill.getId(), skill.getName(), skill.getDescription(), skill.getInstruction());
+                    if (draft.isOk()) showSkillCreatorReview(draft, skill.getDescription());
+                    else toast(draft.getError());
+                })
+                .show();
+    }
+
+    private void confirmDeleteCustomSkill(SkillDefinition skill, Set<String> selected) {
+        if (skill == null) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Delete “" + skill.getName() + "”?")
+                .setMessage("This removes the on-device skill. Catalog skills are not affected.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete", (d, w) -> {
+                    customSkillStore.delete(skill.getId());
+                    if (selected != null) selected.remove(skill.getId());
+                    List<String> enabled = new ArrayList<>(preferences.getEnabledSkills());
+                    enabled.remove(skill.getId());
+                    preferences.setEnabledSkills(enabled);
+                    toast("Skill deleted");
+                    showSkillsSettings();
+                })
+                .show();
     }
 
     private void showLanguagePicker() {
@@ -5000,7 +5246,7 @@ public class MainActivity extends Activity {
         labels.addView(title, wrap());
         String language = LanguageCatalog.find(preferences.getLanguagePreset()).getLabel();
         labels.addView(text(preferences.getEnabledSkills().size() + " skills enabled  ·  " + language + " artifact preset", 11, secondaryText), marginParams(0, 4, 0, 0));
-        labels.addView(text("Shape responses without granting tools or device permissions.", 10, mutedText), marginParams(0, 5, 0, 0));
+        labels.addView(text("Catalog + /skill-creator custom skills. Wording only — never extra tools.", 10, mutedText), marginParams(0, 5, 0, 0));
         skills.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
         skills.addView(smallButton("Configure", lavender, view -> showSkillsSettings()), wrap());
         body.addView(skills, marginParams(0, 13, 0, 0));
@@ -5501,6 +5747,25 @@ public class MainActivity extends Activity {
         return d;
     }
 
+    private GradientDrawable accentSoft(int accent) {
+        GradientDrawable drawable = new GradientDrawable();
+        int r = Color.red(accent);
+        int g = Color.green(accent);
+        int b = Color.blue(accent);
+        drawable.setColor(Color.argb(48, r, g, b));
+        drawable.setCornerRadius(dp(14));
+        drawable.setStroke(dp(1), Color.argb(90, r, g, b));
+        return drawable;
+    }
+
+    private GradientDrawable premiumComposerBg() {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(raised);
+        drawable.setCornerRadius(dp(22));
+        drawable.setStroke(dp(1), border);
+        return drawable;
+    }
+
     private GradientDrawable rounded(int color, float radius) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
@@ -5580,7 +5845,9 @@ public class MainActivity extends Activity {
                 "Slash command help",
                 "What’s new",
                 "Feature ideas",
-                "Set / change PIN"
+                "Set / change PIN",
+                "Skill creator",
+                "Skills & language"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Command palette")
@@ -5631,6 +5898,8 @@ public class MainActivity extends Activity {
                         case 23: showWhatsNew(true); break;
                         case 24: showFeatureIdeas(); break;
                         case 25: showPinEditor(); break;
+                        case 26: showSkillCreator(""); break;
+                        case 27: showSkillsSettings(); break;
                     }
                 })
                 .show();
@@ -6393,6 +6662,12 @@ public class MainActivity extends Activity {
             case CLAUDE:
                 showModels();
                 toast("Pick a Claude / Anthropic model");
+                return;
+            case CREATE_SKILL:
+                showSkillCreator("");
+                return;
+            case SKILLS:
+                showSkillsSettings();
                 return;
             case SEND:
                 if (composer != null && composer.getText().length() > 0) sendMessage();

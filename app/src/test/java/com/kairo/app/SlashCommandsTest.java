@@ -42,4 +42,21 @@ public class SlashCommandsTest {
         assertTrue(SlashCommands.helpText().contains("/summarize"));
         assertTrue(SlashCommands.isKnownCommand("/arena"));
     }
+
+    @Test
+    public void skillCreatorIsConsumedOnDeviceWithTheBriefPreserved() {
+        SlashCommands.Result empty = SlashCommands.parse("/skill-creator");
+        assertTrue(empty.isMatched());
+        assertTrue(empty.isConsumeOnly());
+        assertEquals("skill-creator", empty.getHelpTopic());
+        assertEquals("", empty.getPrompt());
+
+        SlashCommands.Result brief = SlashCommands.parse(
+                "/skill-creator Answer like a staff Android engineer: trade-offs first.");
+        assertEquals("skill-creator", brief.getHelpTopic());
+        assertEquals("Answer like a staff Android engineer: trade-offs first.", brief.getPrompt());
+        assertTrue(SlashCommands.parse("/skill review diffs like a staff reviewer").isMatched());
+        assertEquals("skills", SlashCommands.parse("/skills").getHelpTopic());
+        assertTrue(SlashCommands.helpText().contains("/skill-creator"));
+    }
 }

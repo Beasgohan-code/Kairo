@@ -15,6 +15,8 @@ public class VoiceCommandRouterTest {
         assertEquals(VoiceCommandRouter.Action.ARENA, VoiceCommandRouter.route("open arena").getAction());
         assertEquals(VoiceCommandRouter.Action.CAMERA, VoiceCommandRouter.route("take photo").getAction());
         assertEquals(VoiceCommandRouter.Action.CREATE_FILE, VoiceCommandRouter.route("create file").getAction());
+        assertEquals(VoiceCommandRouter.Action.CREATE_SKILL, VoiceCommandRouter.route("skill creator").getAction());
+        assertEquals(VoiceCommandRouter.Action.SKILLS, VoiceCommandRouter.route("open skills").getAction());
 
         VoiceCommandRouter.Result dictation = VoiceCommandRouter.route("please list the files in src");
         assertEquals(VoiceCommandRouter.Action.DICTATE, dictation.getAction());

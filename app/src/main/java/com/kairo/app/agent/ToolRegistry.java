@@ -134,7 +134,9 @@ public final class ToolRegistry {
             new ToolSpec("pin_lock", "PIN app lock",
                     "Optional numeric PIN hashed on-device. Complements the existing unlock gate.", true, false),
             new ToolSpec("duplicate_conversation", "Duplicate conversation",
-                    "Copy the current thread into a new local session without contacting a provider.", false, false)
+                    "Copy the current thread into a new local session without contacting a provider.", false, false),
+            new ToolSpec("skill_creator", "Skill creator",
+                    "Compile a user brief into a reviewable, permissionless skill card. Skills only shape wording; they never grant tools, network, or phone access.", true, false)
     ));
 
     private ToolRegistry() {
