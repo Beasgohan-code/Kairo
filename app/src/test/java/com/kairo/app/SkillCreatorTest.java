@@ -23,14 +23,17 @@ public class SkillCreatorTest {
         assertTrue(draft.getError(), draft.isOk());
         SkillDefinition skill = draft.getSkill();
         assertNotNull(skill);
+        assertEquals("engineering", draft.getArchetype());
+        assertEquals("Staff Android Engineer", skill.getName());
+        assertEquals("user-staff-android-engineer", skill.getId());
         assertTrue(SkillCreator.isCustomId(skill.getId()));
-        assertTrue(skill.getId().startsWith("user-"));
-        assertTrue(skill.getName().length() >= 4);
         assertTrue(skill.getInstruction().contains("does not grant"));
-        assertTrue(skill.getInstruction().contains("trade-offs first")
-                || skill.getInstruction().toLowerCase(java.util.Locale.US).contains("trade-offs"));
+        assertTrue(skill.getInstruction().contains("Output shape"));
+        assertTrue(skill.getInstruction().contains("Quality bar"));
+        assertTrue(skill.getInstruction().toLowerCase(java.util.Locale.US).contains("trade-offs"));
         assertTrue(draft.getCard().contains(skill.getName()));
         assertTrue(draft.getCard().contains("cannot run tools"));
+        assertTrue(SkillCreator.exportMarkdown(skill).startsWith("# Staff Android Engineer"));
     }
 
     @Test
@@ -65,6 +68,7 @@ public class SkillCreatorTest {
         assertEquals("user-staff-android", draft.getSkill().getId());
         assertTrue(draft.getSkill().getInstruction().contains("does not grant")
                 || draft.getSkill().getInstruction().contains("only shapes"));
+        assertTrue(draft.getCard().contains("Staff Android"));
     }
 
     @Test
@@ -78,10 +82,24 @@ public class SkillCreatorTest {
     }
 
     @Test
+    public void startersAreProfessionalAndCompile() {
+        String[][] starters = SkillCreator.starters();
+        assertTrue(starters.length >= 6);
+        for (String[] row : starters) {
+            assertEquals(2, row.length);
+            assertTrue(row[0].length() >= 4);
+            SkillCreator.Draft draft = SkillCreator.compile(row[1]);
+            assertTrue(row[0] + ": " + draft.getError(), draft.isOk());
+            assertTrue(draft.getSkill().getInstruction().contains("does not grant"));
+        }
+    }
+
+    @Test
     public void storeRoundTripSkipsCredentialedRows() {
         SkillCreator.Draft draft = SkillCreator.compile(
                 "Write commit messages in imperative mood. One intent per change. Mention rollback when risk is real.");
         assertTrue(draft.isOk());
+        assertEquals("git", draft.getArchetype());
         String packed = CustomSkillStore.serialize(Collections.singletonList(draft.getSkill()));
         List<SkillDefinition> parsed = CustomSkillStore.parse(packed);
         assertEquals(1, parsed.size());

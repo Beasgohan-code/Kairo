@@ -23,7 +23,7 @@ public final class WhatsNew {
                 + "• Exports use the full credential redactor\n\n"
                 + "New\n"
                 + "• Slash commands: /help /code /review /deep /file /summarize /skill-creator…\n"
-                + "• Custom skills: compile a brief, review the card, wording only\n"
+                + "• Custom skills: /skill-creator compiles a staff-grade card you review first\n"
                 + "• Find in chat, duplicate thread, edit last message\n"
                 + "• Speak last answer (on-device TTS)\n"
                 + "• Optional numeric PIN for app lock\n"

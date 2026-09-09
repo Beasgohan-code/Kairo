@@ -4881,7 +4881,7 @@ public class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(2), dp(4), dp(2), 0);
-        panel.addView(text("Describe how Kairo should answer. The compiler turns the brief into a named skill card — id, purpose, operating procedure, and guardrails — that you review before anything is saved.", 12, secondaryText), wrap());
+        panel.addView(text("Describe the voice you want. Kairo compiles a named skill card — id, purpose, operating procedure, output shape, quality bar, and guardrails. You review every field before anything is saved.", 12, secondaryText), wrap());
         panel.addView(text("Skills only shape wording. They cannot run tools, write files, call the network, or control the phone.", 11, mint), marginParams(0, 8, 0, 10));
 
         EditText brief = input("e.g. Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty.", false);
@@ -4897,14 +4897,7 @@ public class MainActivity extends Activity {
         HorizontalScrollView chipsScroll = new HorizontalScrollView(this);
         chipsScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout chips = new LinearLayout(this);
-        String[][] templates = {
-                {"Staff engineer", "Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty."},
-                {"Security review", "Review like an application-security engineer: realistic exploit path, blast radius, then a concrete mitigation. Do not invent CVEs."},
-                {"Incident lead", "Respond as an incident commander: timeline, hypothesis, smallest check, blast radius. Do not declare root cause without evidence."},
-                {"Code reviewer", "Review diffs like a staff reviewer: blockers versus nits, quote the snippet, suggest a patch."},
-                {"Teacher", "Teach as a patient senior: start from the reader's current model, one analogy, then the precise version, then a check question."},
-                {"Technical editor", "Edit for a precise technical voice: cut filler, prefer specific verbs, keep every claim scoped."}
-        };
+        String[][] templates = SkillCreator.starters();
         for (int i = 0; i < templates.length; i++) {
             final String template = templates[i][1];
             TextView chip = pill(templates[i][0], secondaryText, raised);
@@ -4947,6 +4940,9 @@ public class MainActivity extends Activity {
         card.setPadding(dp(12), dp(11), dp(12), dp(11));
         card.setBackground(accentSoft(lavender));
         panel.addView(card, wrapParams());
+        if (customSkillStore != null && customSkillStore.find(skill.getId()) != null) {
+            panel.addView(text("A skill with this id already exists. Saving replaces it after you confirm.", 11, amber), marginParams(0, 8, 0, 0));
+        }
         panel.addView(text("Review every field. Saving stores the skill on this device and enables it for the next reply. Nothing is sent until you confirm.", 11, mutedText), marginParams(0, 10, 0, 10));
 
         panel.addView(text("Name", 11, mutedText), wrap());
@@ -4971,11 +4967,16 @@ public class MainActivity extends Activity {
         instruction.setText(skill.getInstruction());
         panel.addView(instruction, marginParams(0, 4, 0, 8));
         panel.addView(text("Guardrails stay attached: no tools, no secrets, no fake writes.", 10, mint), wrap());
+        LinearLayout copyRow = new LinearLayout(this);
+        copyRow.setGravity(Gravity.END);
+        copyRow.addView(smallButton("Copy card", secondaryText, v ->
+                copyToClipboard(SkillCreator.exportMarkdown(skill))), wrap());
+        panel.addView(copyRow, marginParams(0, 10, 0, 0));
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(panel);
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Review skill")
+                .setTitle("Review skill · " + draft.getArchetypeLabel())
                 .setView(scroll)
                 .setNegativeButton("Cancel", null)
                 .setNeutralButton("Edit brief", (d, w) -> showSkillCreatorBrief(originalBrief))

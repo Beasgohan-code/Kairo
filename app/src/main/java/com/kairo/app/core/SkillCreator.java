@@ -5,6 +5,8 @@ import com.kairo.app.data.SkillDefinition;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Compiles a short brief into a reviewable, permissionless skill.
@@ -17,6 +19,11 @@ public final class SkillCreator {
     public static final int MAX_INSTRUCTION = 1_600;
     public static final int MAX_CUSTOM = 24;
     public static final String ID_PREFIX = "user-";
+
+    private static final Pattern LIKE_A_ROLE = Pattern.compile(
+            "(?i)(?:answer|respond|act|write|review|teach|edit|speak)\\s+(?:like|as)\\s+(?:a|an|the)\\s+([^:]+)");
+    private static final Pattern AS_A_ROLE = Pattern.compile(
+            "(?i)\\b(?:like|as)\\s+(?:a|an|the)\\s+([^:.]+)");
 
     public static final class Draft {
         private final boolean ok;
@@ -52,9 +59,35 @@ public final class SkillCreator {
         public String getCard() {
             return card;
         }
+
+        public String getArchetypeLabel() {
+            return titleForArchetype(archetype);
+        }
     }
 
     private SkillCreator() {
+    }
+
+    /** Curated briefs shown in the creator. Keep these professional — they are the product demo. */
+    public static String[][] starters() {
+        return new String[][]{
+                {"Staff engineer",
+                        "Answer like a staff Android engineer: trade-offs first, name the risk, no fake certainty."},
+                {"Security review",
+                        "Review like an application-security engineer: realistic exploit path, blast radius, then a concrete mitigation. Do not invent CVEs."},
+                {"Incident lead",
+                        "Respond as an incident commander: timeline, hypothesis, smallest check, blast radius. Do not declare root cause without evidence."},
+                {"Code reviewer",
+                        "Review diffs like a staff reviewer: blockers versus nits, quote the snippet, suggest a patch."},
+                {"Teacher",
+                        "Teach as a patient senior: start from the reader's current model, one analogy, then the precise version, then a check question."},
+                {"Technical editor",
+                        "Edit for a precise technical voice: cut filler, prefer specific verbs, keep every claim scoped."},
+                {"PR author",
+                        "Write pull-request titles and bodies in imperative mood. One intent. Risk and rollback when the change is not trivial."},
+                {"Test designer",
+                        "Propose the smallest tests that would fail today. Cover happy path, one edge, and one failure. Name the runner."}
+        };
     }
 
     public static boolean isCustomId(String id) {
@@ -96,12 +129,7 @@ public final class SkillCreator {
             instruction = instruction.substring(0, MAX_INSTRUCTION - 1).trim() + "…";
         }
         SkillDefinition skill = new SkillDefinition(id, name, description, instruction, true);
-        String card = "Skill  ·  " + name + "\n"
-                + "Id     ·  " + id + "\n"
-                + "Kind   ·  " + titleForArchetype(archetype) + "\n\n"
-                + description + "\n\n"
-                + "This skill only shapes answers. It cannot run tools, write files, or send network requests.";
-        return new Draft(true, "", skill, archetype, card);
+        return new Draft(true, "", skill, archetype, formatCard(skill, archetype));
     }
 
     public static Draft fromFields(String id, String name, String description, String instruction) {
@@ -126,7 +154,26 @@ public final class SkillCreator {
         }
         if (body.length() > MAX_INSTRUCTION) body = body.substring(0, MAX_INSTRUCTION).trim();
         SkillDefinition skill = new SkillDefinition(safeId, safeName, desc, body, true);
-        return new Draft(true, "", skill, "custom", "Skill  ·  " + safeName + "\nId     ·  " + safeId);
+        return new Draft(true, "", skill, "custom", formatCard(skill, "custom"));
+    }
+
+    public static String formatCard(SkillDefinition skill, String archetype) {
+        if (skill == null) return "";
+        return "SKILL CARD\n"
+                + "Name   ·  " + skill.getName() + "\n"
+                + "Id     ·  " + skill.getId() + "\n"
+                + "Kind   ·  " + titleForArchetype(archetype) + "\n\n"
+                + skill.getDescription() + "\n\n"
+                + "Wording only. This skill cannot run tools, write files, send network requests, or control the phone.";
+    }
+
+    public static String exportMarkdown(SkillDefinition skill) {
+        if (skill == null) return "";
+        return "# " + skill.getName() + "\n\n"
+                + "`" + skill.getId() + "`  ·  custom skill  ·  wording only\n\n"
+                + skill.getDescription() + "\n\n"
+                + "## Operating procedure\n\n"
+                + skill.getInstruction().trim() + "\n";
     }
 
     public static String slug(String name) {
@@ -155,21 +202,21 @@ public final class SkillCreator {
     static String detectArchetype(String brief) {
         String lower = brief.toLowerCase(Locale.US);
         if (containsAny(lower, "security", "owasp", "injection", "xss", "secret", "threat model")) return "security";
-        if (containsAny(lower, "unit test", "coverage", "tdd", "test the")) return "testing";
-        if (containsAny(lower, "code review", "pr review", "diff", "nitpick")) return "review";
-        if (containsAny(lower, "commit", "pull request", "changelog", "release note")) return "git";
+        if (containsAny(lower, "unit test", "coverage", "tdd", "test the", "test designer")) return "testing";
+        if (containsAny(lower, "code review", "pr review", "diff", "nitpick", "blockers versus")) return "review";
+        if (containsAny(lower, "commit", "pull request", "pull-request", "changelog", "release note")) return "git";
         if (containsAny(lower, "incident", "debug", "root cause", "outage", "stack trace")) return "incident";
         if (containsAny(lower, "teach", "explain like", "eli5", "tutorial", "lesson")) return "teaching";
         if (containsAny(lower, "research", "compare vendors", "sources", "cite")) return "research";
         if (containsAny(lower, "prd", "product spec", "user story", "roadmap")) return "product";
-        if (containsAny(lower, "write", "editor", "tone", "blog", "email", "copy", "staff engineer", "voice")) {
-            return "writing";
+        if (containsAny(lower, "android", "engineer", "kotlin", "java", "typescript", "refactor", "api", "code")) {
+            return "engineering";
         }
-        if (containsAny(lower, "code", "kotlin", "java", "typescript", "refactor", "api")) return "engineering";
+        if (containsAny(lower, "write", "editor", "tone", "blog", "email", "copy", "voice")) return "writing";
         return "general";
     }
 
-    private static String titleForArchetype(String archetype) {
+    static String titleForArchetype(String archetype) {
         if ("security".equals(archetype)) return "Security review";
         if ("testing".equals(archetype)) return "Test design";
         if ("review".equals(archetype)) return "Code review";
@@ -180,18 +227,43 @@ public final class SkillCreator {
         if ("product".equals(archetype)) return "Product writing";
         if ("writing".equals(archetype)) return "Editorial voice";
         if ("engineering".equals(archetype)) return "Engineering";
+        if ("custom".equals(archetype)) return "Custom skill";
         return "Custom skill";
     }
 
     private static String inferName(String brief, String archetype) {
         String first = firstSentence(brief);
         first = first.replaceFirst("(?i)^(please\\s+|make (me )?a skill (that|to)\\s+|skill:?\\s+)", "");
+        String role = roleFrom(first);
+        if (role.length() >= 4 && role.length() <= MAX_NAME) return titleCase(role);
         if (first.length() > 42) {
             int cut = first.lastIndexOf(' ', 42);
             first = first.substring(0, cut > 16 ? cut : 42).trim();
         }
         if (first.length() < 4) return titleForArchetype(archetype);
-        return titleCase(first);
+        return titleCase(stripTrailingPunct(first));
+    }
+
+    private static String roleFrom(String sentence) {
+        Matcher like = LIKE_A_ROLE.matcher(sentence);
+        if (like.find()) return sanitizeName(stripTrailingPunct(like.group(1)));
+        Matcher as = AS_A_ROLE.matcher(sentence);
+        if (as.find()) return sanitizeName(stripTrailingPunct(as.group(1)));
+        return "";
+    }
+
+    private static String stripTrailingPunct(String value) {
+        if (value == null) return "";
+        String compact = value.trim();
+        while (!compact.isEmpty()) {
+            char last = compact.charAt(compact.length() - 1);
+            if (last == ':' || last == '.' || last == ',' || last == ';' || last == '-') {
+                compact = compact.substring(0, compact.length() - 1).trim();
+            } else {
+                break;
+            }
+        }
+        return compact;
     }
 
     private static String inferDescription(String brief, String archetype) {
@@ -211,10 +283,15 @@ public final class SkillCreator {
         StringBuilder out = new StringBuilder();
         out.append("You are applying the user-authored skill “").append(name).append("”.\n");
         out.append("Purpose: ").append(description).append("\n\n");
+        out.append("When this skill is on:\n");
+        out.append("- Apply it to every answer in this conversation unless the user explicitly pauses it.\n");
+        out.append("- If the request is outside the skill, still be useful, then return to this posture.\n\n");
         out.append("Operating procedure:\n");
         for (String bullet : procedure(archetype, brief)) {
             out.append("- ").append(bullet).append('\n');
         }
+        out.append('\n').append(outputShape(archetype)).append('\n');
+        out.append('\n').append(qualityBar(archetype)).append('\n');
         out.append('\n').append(constraints());
         return out.toString().trim();
     }
@@ -229,7 +306,7 @@ public final class SkillCreator {
             if (item.length() < 8) continue;
             boolean dup = false;
             for (String existing : bullets) {
-                if (existing.equalsIgnoreCase(item)) {
+                if (existing.equalsIgnoreCase(item) || existing.toLowerCase(Locale.US).contains(item.toLowerCase(Locale.US))) {
                     dup = true;
                     break;
                 }
@@ -267,6 +344,41 @@ public final class SkillCreator {
             default:
                 return "Lead with the answer, then the why, then a practical next step.";
         }
+    }
+
+    private static String outputShape(String archetype) {
+        String shape;
+        switch (archetype) {
+            case "security":
+                shape = "Risk → blast radius → mitigation → residual uncertainty.";
+                break;
+            case "testing":
+                shape = "Cases as a short list, then how to run them, then what would change your mind.";
+                break;
+            case "review":
+                shape = "Blockers, then nits, then a suggested patch. No throat-clearing.";
+                break;
+            case "git":
+                shape = "Title on one line, body with why / risk / rollback.";
+                break;
+            case "incident":
+                shape = "Timeline, then hypotheses, then the next check only.";
+                break;
+            case "teaching":
+                shape = "Analogy, precise version, then one check question.";
+                break;
+            default:
+                shape = "Answer first, then the why, then one concrete next step.";
+                break;
+        }
+        return "Output shape:\n- " + shape;
+    }
+
+    private static String qualityBar(String archetype) {
+        String bar = "engineering".equals(archetype) || "security".equals(archetype) || "review".equals(archetype)
+                ? "Prefer file paths, types, and numbers over adjectives. If you did not run it, say so."
+                : "No fake certainty. Prefer specific nouns and verbs. If you are guessing, label it.";
+        return "Quality bar:\n- " + bar;
     }
 
     private static String constraints() {

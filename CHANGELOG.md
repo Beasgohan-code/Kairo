@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restored missing `accentSoft` / `premiumComposerBg` drawables so debug Java compilation succeeds
 
 ### Added
-- `/skill-creator <brief>` compiles a named, reviewable custom skill (id / purpose / procedure / guardrails). Skills only shape wording; credentials are rejected; nothing is saved until you confirm
+- `/skill-creator <brief>` compiles a named, reviewable custom skill (id, purpose, procedure, output shape, quality bar, guardrails). Role names are inferred (`Answer like a staff Android engineer` → **Staff Android Engineer**). Skills only shape wording; credentials are rejected; nothing is saved until you confirm; Copy card exports Markdown
 - Slash commands (`/help`, `/code`, `/review`, `/deep`, `/file`, `/summarize`, `/skill-creator`, `/arena`, `/search`, …) parsed on-device
 - Find in chat, edit last message, duplicate conversation, speak last answer (on-device TTS)
 - Copy last fenced code block from an assistant answer
