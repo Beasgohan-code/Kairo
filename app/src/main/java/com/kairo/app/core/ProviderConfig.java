@@ -8,6 +8,7 @@ public final class ProviderConfig {
     }
 
     public static String displayName(String providerId) {
+        if ("experiential".equals(providerId)) return "Experiential Labs";
         if ("openrouter".equals(providerId)) return "OpenRouter";
         if ("groq".equals(providerId)) return "Groq";
         if ("moonshot".equals(providerId)) return "Kimi / Moonshot";
@@ -30,6 +31,7 @@ public final class ProviderConfig {
     }
 
     public static String apiKeyHint(String providerId) {
+        if ("experiential".equals(providerId)) return "Experiential API key (Settings → API Keys)";
         if ("nvidia".equals(providerId)) return "nvapi-…";
         if ("moonshot".equals(providerId)) return "Kimi / Moonshot API key";
         if ("mistral".equals(providerId)) return "Mistral API key";
@@ -49,6 +51,8 @@ public final class ProviderConfig {
     }
 
     public static String baseUrl(String providerId, AppPreferences preferences) {
+        // OpenAI-compatible Chat Completions. Keys from platform.experientiallabs.ai.
+        if ("experiential".equals(providerId)) return "https://api.experientiallabs.ai/v1";
         if ("openrouter".equals(providerId)) return "https://openrouter.ai/api/v1";
         if ("groq".equals(providerId)) return "https://api.groq.com/openai/v1";
         if ("moonshot".equals(providerId)) return "https://api.moonshot.ai/v1";
@@ -71,5 +75,20 @@ public final class ProviderConfig {
 
     public static String requestModelId(ModelInfo model) {
         return model == null ? "" : model.getId();
+    }
+
+    /** Short brand letter shown on provider rows in the model picker. */
+    public static String brandMark(String providerId) {
+        if ("experiential".equals(providerId)) return "E";
+        if ("openrouter".equals(providerId)) return "O";
+        if ("groq".equals(providerId)) return "G";
+        if ("moonshot".equals(providerId)) return "K";
+        if ("nvidia".equals(providerId)) return "N";
+        if ("mistral".equals(providerId)) return "M";
+        if ("anthropic".equals(providerId)) return "A";
+        if ("openai".equals(providerId)) return "AI";
+        if ("ollama".equals(providerId)) return "🦙";
+        if ("custom".equals(providerId)) return "⚡";
+        return "·";
     }
 }

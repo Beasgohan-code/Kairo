@@ -1,15 +1,15 @@
 # Kairo
 
-Kairo is a provider-neutral Android AI workspace written in Java. It combines a calm, modern modern assistant-inspired chat surface with live token streaming (caret + speed indicator), an dual-model dual-model comparison, local artifacts, explicit service connectors, and guarded agent tools.
+Kairo is a provider-neutral Android AI workspace written in Java. It combines a premium dark chat surface (sidebar home, model sheet, arena, artifacts) with live token streaming, dual-model comparison, local artifacts, explicit service connectors, and guarded agent tools.
 
 > Kairo is a client: prompts and API traffic go directly from the device to the provider or endpoint selected by the user. It is not an API-key proxy.
 
 ## Included
 
-- **Chat workspace** with a modern modern assistant-inspired dark UI, refined message bubbles, model badges, conversation drawer, searchable thread history, automatic titles, rename/share/clear, copy/retry, and starter prompts.
+- **Voice assistant** with spoken commands (new chat, deep mode, open arena, theme, dictate) and optional continuous auto-send.\n- **Themes** — Dark, Light, and System colour.\n- **Ubuntu-style sandbox terminal** (allow-listed diagnostics + private file create/zip/templates) — not a full VM.\n- **Files & images** — templates for py/ts/java/kt/cpp/c/css/xml/md/txt/zip…, camera capture, Image studio.\n- **Chat workspace** with a premium mockup-inspired dark UI, sidebar sessions, greeting home tiles, refined message bubbles, model badges, searchable history, rename/share/clear, copy/retry, and suggestion chips.
 - **Responsive composer + live streaming** with real-time token output, blinking streaming caret, elapsed time + chars/sec indicator, stop-generation, improved markdown (bold/italic/headers/code), bounded attachments, vision hints, voice input, model selection, tool shortcuts, Fast/Balanced/Deep reasoning, Hermes plan/process/review, and a 32k prompt guardrail.
-- **Artifacts workspace** for creating private files, generating code through the AI composer, saving generated code blocks, editing in a monospace preview, copying, sharing, exporting, deleting, and bounded safe storage. Language presets cover JavaScript, TypeScript, Kotlin, Java, Linux shell, Python, HTML, CSS, and JSON.
-- **Provider adapters** for OpenRouter, fast-provider, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama. fast-provider has a one-tap Fast chat route, while Kimi / Moonshot includes candidate deep-reasoning models and uses the same live SSE/stop-generation experience.
+- **Artifacts workspace** for creating private files, generating code through the AI composer, saving generated code blocks, editing in a monospace preview, copying, sharing, exporting, deleting, and bounded safe storage. Language presets cover **JavaScript, TypeScript, Kotlin, Java, C++, C, Assembly, CSS**, Linux shell, Python, HTML, and JSON.
+- **Provider adapters** for **Experiential Labs** (GPT-6 Astra via `api.experientiallabs.ai/v1`), OpenRouter, Groq, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama.
 - **Web search and dual-model mode** with Brave Search + DuckDuckGo fallback, user-selected source insertion, and polished dual-panel live streaming comparisons (A/B badges, independent stop, copy & save).
 - **Connectors workspace** for GitHub, Vercel, n8n, Slack, Notion, Linear, Supabase, and Discord webhooks. Inspect GitHub context, review Vercel projects/deployments, create a confirmed Git-backed deployment, inspect n8n workflows/executions, search Notion or Linear issues, preview Supabase rows, or send reviewed team updates.
 - **Device setup and provider login** with a private installation id, local pairing label, device profile, setup checklist, and official browser sign-in links. Kairo never receives provider passwords and stores only encrypted tokens.
@@ -41,8 +41,8 @@ The repository keeps the Gradle distribution out of source control. The included
 
 ## First run
 
-1. Open **Models** or the model chip in **Chat** and choose a provider/model. Kimi / Moonshot candidate IDs are not guarantees; refresh after adding a Kimi key.
-2. Open **Settings → Manage key** for that provider. Kairo encrypts the value locally with Android Keystore.
+1. Open **Models** or the model chip in **Chat** and choose a provider/model. Default is **Experiential Labs → GPT-6 Astra**. Use **Astra live** after adding a key.
+2. Open **Settings → Manage key** for that provider. For Experiential, create a key at platform.experientiallabs.ai → Settings → API Keys. Kairo encrypts values with Android Keystore and talks to `https://api.experientiallabs.ai/v1`.
 3. Start a chat. Local Ollama models do not require an API key; for an Android emulator, the default Ollama URL is `http://10.0.2.2:11434`.
 4. Use **Web search** from the drawer for live source cards. Add an optional Brave Search key under **Settings → Brave Search** for richer results; otherwise Kairo tries DuckDuckGo Instant Answers.
 5. Use **Artifacts** to create/edit private files or tap **Save as file** under a model answer. Use **Model arena** to stream one prompt through two selected models in parallel.

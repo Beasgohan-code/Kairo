@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Shell guardrail for the on-device CLI agent.
+ * Shell guardrail for the on-device CLI / Ubuntu-style sandbox terminal.
  * Rejects chaining, redirects, substitution, and anything outside a tight allow-list.
- * Not a full Ubuntu shell — diagnostics + read-only git only.
+ * Not a full Ubuntu shell — diagnostics, read-only git, and light env probes only.
  */
 public final class CliCommandPolicy {
     private static final Pattern DANGEROUS = Pattern.compile("[;&|<>`$\\n\\r]|\\$\\(");
@@ -16,6 +16,31 @@ public final class CliCommandPolicy {
             "pwd",
             "ls",
             "ls -la",
+            "ls -lah",
+            "whoami",
+            "id",
+            "date",
+            "uname -a",
+            "hostname",
+            "uptime",
+            "df -h",
+            "free -m",
+            "cat /proc/version",
+            "cat /proc/cpuinfo",
+            "cat /proc/meminfo",
+            "getprop ro.build.version.release",
+            "getprop ro.product.model",
+            "echo hello",
+            "printf hello",
+            "which sh",
+            "which node",
+            "which python3",
+            "which java",
+            "which clang",
+            "which gcc",
+            "node --version",
+            "python3 --version",
+            "java -version",
             "git status",
             "git status -sb",
             "git diff --stat",
@@ -26,12 +51,9 @@ public final class CliCommandPolicy {
             "git log -10 --oneline",
             "git remote -v",
             "git rev-parse --short HEAD",
-            "uname -a",
-            "id",
-            "whoami",
-            "date",
-            "df -h",
-            "env | head"
+            "git show --stat HEAD",
+            "sandbox-status",
+            "help"
     ));
 
     private CliCommandPolicy() {
@@ -44,16 +66,27 @@ public final class CliCommandPolicy {
     public static boolean isAllowed(String command) {
         if (command == null) return false;
         String value = command.trim();
-        if (value.isEmpty() || value.length() > 180 || DANGEROUS.matcher(value).find()) return false;
+        if (value.isEmpty() || value.length() > 200 || DANGEROUS.matcher(value).find()) return false;
 
-        // Note: "env | head" is listed as example text only; pipes are blocked by DANGEROUS.
         return value.matches("pwd")
-                || value.matches("ls( -la)?")
+                || value.matches("ls( -l(a|ah|ha)?)?")
                 || value.matches("whoami")
                 || value.matches("date")
                 || value.matches("df -h")
+                || value.matches("free -m")
                 || value.matches("uname -a")
+                || value.matches("hostname")
+                || value.matches("uptime")
                 || value.matches("id")
+                || value.matches("help")
+                || value.matches("sandbox-status")
+                || value.matches("echo [A-Za-z0-9 _.,:+-]{1,80}")
+                || value.matches("printf [A-Za-z0-9 _.,:+-]{1,80}")
+                || value.matches("which (sh|node|deno|python3|java|javac|kotlinc|clang|clang\\+\\+|gcc|g\\+\\+|git)")
+                || value.matches("(node|deno|python3|java|clang|gcc|git) --version")
+                || value.matches("java -version")
+                || value.matches("cat /proc/(version|cpuinfo|meminfo)")
+                || value.matches("getprop ro\\.(build\\.version\\.release|product\\.model|product\\.manufacturer)")
                 || value.matches("git status")
                 || value.matches("git status -sb")
                 || value.matches("git diff --stat")
@@ -71,6 +104,18 @@ public final class CliCommandPolicy {
         if (DANGEROUS.matcher(command).find()) {
             return "Pipes, redirects, chaining, and substitution are blocked for safety.";
         }
-        return "Outside the safe diagnostics allow-list. Use sandbox file tools for create/zip.";
+        return "Outside the safe Ubuntu-style diagnostics allow-list. Use sandbox file tools for create/zip/run.";
+    }
+
+    /** Human help printed by the terminal `help` command. */
+    public static String helpText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Kairo sandbox terminal (Ubuntu-style diagnostics, not a full VM)\n");
+        sb.append("Allowed examples:\n");
+        for (String example : EXAMPLES) {
+            sb.append("  · ").append(example).append('\n');
+        }
+        sb.append("\nBlocked: pipes, redirects, chaining, substitution, root, package installs, arbitrary paths.");
+        return sb.toString().trim();
     }
 }
