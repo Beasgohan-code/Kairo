@@ -43,7 +43,11 @@ public final class CodeRunner {
                 {"Python 3", "python3"},
                 {"Java", "java"},
                 {"Java compiler", "javac"},
-                {"Kotlin compiler", "kotlinc"}
+                {"Kotlin compiler", "kotlinc"},
+                {"clang", "clang"},
+                {"clang++", "clang++"},
+                {"gcc", "gcc"},
+                {"g++", "g++"}
         };
         StringBuilder result = new StringBuilder("Kairo private runner · Android Linux process\n");
         for (String[] runtime : runtimes) {
@@ -75,12 +79,23 @@ public final class CodeRunner {
         }
         String language = artifact.getLanguage() == null
                 ? "" : artifact.getLanguage().trim().toLowerCase(Locale.US);
-        if ("kotlin".equals(language) || "java".equals(language)) {
-            // These paths are supported when a JVM/compiler is present, which is uncommon on
-            // Android. The process failure below becomes a clear runtime-not-installed message.
+        if ("kotlin".equals(language) || "java".equals(language)
+                || "cpp".equals(language) || "c".equals(language)
+                || "cplusplus".equals(language)) {
+            // JVM/native toolchains uncommon on Android — missing runtimes surface clearly.
+        } else if ("assembly".equals(language) || "asm".equals(language)) {
+            callback.onError("Assembly is review-only in Kairo. The file can be created, edited, "
+                    + "exported, or shared; device-side assemble/link is not available.");
+            return;
         } else if (!("javascript".equals(language) || "typescript".equals(language)
                 || "python".equals(language) || "shell".equals(language)
-                || "bash".equals(language))) {
+                || "bash".equals(language) || "css".equals(language)
+                || "html".equals(language) || "json".equals(language)
+                || "xml".equals(language) || "markdown".equals(language)
+                || "text".equals(language) || "yaml".equals(language)
+                || "sql".equals(language) || "go".equals(language)
+                || "rust".equals(language) || "swift".equals(language)
+                || "dart".equals(language))) {
             callback.onError("Run/check is not available for " + artifact.getLanguage()
                     + ". The file can still be created, edited, exported, or shared.");
             return;
@@ -119,6 +134,20 @@ public final class CodeRunner {
                 } else if ("python".equals(language)) {
                     result = runProcess(Arrays.asList("python3", "-I", source.getAbsolutePath()),
                             runDirectory, "Python 3 is not installed in Kairo's app environment.");
+                } else if ("cpp".equals(language) || "cplusplus".equals(language)) {
+                    result = runNativeCompile(source, runDirectory, true);
+                } else if ("c".equals(language)) {
+                    result = runNativeCompile(source, runDirectory, false);
+                } else if ("css".equals(language) || "html".equals(language) || "json".equals(language)
+                        || "xml".equals(language) || "markdown".equals(language)
+                        || "text".equals(language) || "yaml".equals(language)
+                        || "sql".equals(language) || "go".equals(language)
+                        || "rust".equals(language) || "swift".equals(language)
+                        || "dart".equals(language)) {
+                    result = "Static " + language + " artifact checked ("
+                            + artifact.getContent().length() + " chars). "
+                            + "No runtime execution is required on device "
+                            + "(use a desktop toolchain for go/rust/swift/dart run).";
                 } else {
                     // Shell is deliberately syntax-only. Arbitrary shell execution remains
                     // outside Kairo's safe CLI allow-list.
@@ -246,17 +275,66 @@ public final class CodeRunner {
         return output.toString().trim();
     }
 
+    private String runNativeCompile(File source, File runDirectory, boolean cpp) throws Exception {
+        String outName = cpp ? "kairo-native-cpp" : "kairo-native-c";
+        File out = new File(runDirectory, outName);
+        String[][] toolchains = cpp
+                ? new String[][]{
+                    {"clang++", "-O2", "-std=c++17", source.getAbsolutePath(), "-o", out.getAbsolutePath()},
+                    {"g++", "-O2", "-std=c++17", source.getAbsolutePath(), "-o", out.getAbsolutePath()}
+                }
+                : new String[][]{
+                    {"clang", "-O2", "-std=c11", source.getAbsolutePath(), "-o", out.getAbsolutePath()},
+                    {"gcc", "-O2", "-std=c11", source.getAbsolutePath(), "-o", out.getAbsolutePath()}
+                };
+        String lastError = cpp
+                ? "Neither clang++ nor g++ is installed in Kairo's app environment."
+                : "Neither clang nor gcc is installed in Kairo's app environment.";
+        for (String[] cmd : toolchains) {
+            try {
+                ProcessResult compile = execute(Arrays.asList(cmd), runDirectory, lastError);
+                if (compile.exitCode == 0) {
+                    return "Native compile succeeded with " + cmd[0] + " (-O2).\n"
+                            + "Binary: " + out.getName() + "\n"
+                            + "Kairo does not execute arbitrary native binaries on-device for safety.\n\n"
+                            + compile.output;
+                }
+                lastError = cmd[0] + " failed (exit " + compile.exitCode + ")\n" + compile.output;
+            } catch (Exception ignored) {
+            }
+        }
+        throw new IllegalStateException(lastError);
+    }
+
     private String suffixFor(String language, String name) {
         if ("typescript".equals(language)) return ".ts";
         if ("javascript".equals(language)) return ".js";
         if ("python".equals(language)) return ".py";
         if ("java".equals(language)) return ".java";
         if ("kotlin".equals(language)) return ".kt";
+        if ("cpp".equals(language) || "cplusplus".equals(language)) return ".cpp";
+        if ("c".equals(language)) return ".c";
+        if ("assembly".equals(language) || "asm".equals(language)) return ".s";
+        if ("css".equals(language)) return ".css";
+        if ("html".equals(language)) return ".html";
+        if ("json".equals(language)) return ".json";
+        if ("xml".equals(language)) return ".xml";
+        if ("markdown".equals(language)) return ".md";
+        if ("yaml".equals(language)) return ".yml";
+        if ("sql".equals(language)) return ".sql";
+        if ("go".equals(language)) return ".go";
+        if ("rust".equals(language)) return ".rs";
+        if ("swift".equals(language)) return ".swift";
+        if ("dart".equals(language)) return ".dart";
+        if ("text".equals(language)) return ".txt";
         if ("shell".equals(language) || "bash".equals(language)) return ".sh";
         if (name != null) {
             String lower = name.toLowerCase(Locale.US);
             if (lower.endsWith(".js") || lower.endsWith(".ts") || lower.endsWith(".py")
-                    || lower.endsWith(".java") || lower.endsWith(".kt") || lower.endsWith(".sh")) {
+                    || lower.endsWith(".java") || lower.endsWith(".kt") || lower.endsWith(".sh")
+                    || lower.endsWith(".cpp") || lower.endsWith(".c") || lower.endsWith(".s")
+                    || lower.endsWith(".css") || lower.endsWith(".html") || lower.endsWith(".json")
+                    || lower.endsWith(".asm")) {
                 return lower.substring(lower.lastIndexOf('.'));
             }
         }

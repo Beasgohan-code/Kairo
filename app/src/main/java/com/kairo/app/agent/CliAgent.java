@@ -28,10 +28,25 @@ public final class CliAgent {
             callback.onError(CliCommandPolicy.rejectionReason(command));
             return;
         }
+        String trimmed = command.trim();
+        if ("help".equals(trimmed)) {
+            callback.onSuccess(CliCommandPolicy.helpText());
+            return;
+        }
+        if ("sandbox-status".equals(trimmed)) {
+            StringBuilder status = new StringBuilder();
+            status.append("Kairo Ubuntu-style sandbox terminal\n");
+            status.append("cwd: ").append(privateDirectory == null ? "(default)" : privateDirectory.getAbsolutePath()).append('\n');
+            status.append("shell: /system/bin/sh\n");
+            status.append("policy: allow-list only · no pipes/redirects/root\n");
+            status.append("hint: type `help` for allowed commands\n");
+            callback.onSuccess(status.toString().trim());
+            return;
+        }
         EXECUTOR.execute(() -> {
             Process process = null;
             try {
-                ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", command.trim())
+                ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", trimmed)
                         .redirectErrorStream(true);
                 if (privateDirectory != null) {
                     if (!privateDirectory.exists() && !privateDirectory.mkdirs()) {

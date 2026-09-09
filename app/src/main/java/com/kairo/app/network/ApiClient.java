@@ -198,8 +198,14 @@ public final class ApiClient {
                     if (item == null) continue;
                     String id = item.optString("id", "").trim();
                     if (id.isEmpty()) continue;
-                    boolean free = "openrouter".equals(providerId)
-                            && id.toLowerCase(Locale.US).endsWith(":free");
+                    String lowerId = id.toLowerCase(Locale.US);
+                    boolean free = ("openrouter".equals(providerId) && lowerId.endsWith(":free"))
+                            || ("experiential".equals(providerId) && (
+                            lowerId.contains("luna")
+                                    || lowerId.contains("v4-flash")
+                                    || lowerId.contains("qwen3.8")
+                                    || lowerId.endsWith("-free")
+                                    || lowerId.contains(":free")));
                     boolean local = "ollama".equals(providerId);
                     models.add(new ModelInfo(
                             id,
@@ -533,7 +539,7 @@ public final class ApiClient {
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setUseCaches(false);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "Kairo-Android/0.1");
+        connection.setRequestProperty("User-Agent", "Kairo-Android/0.12");
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
         }
