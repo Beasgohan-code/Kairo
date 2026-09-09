@@ -539,7 +539,7 @@ public final class ApiClient {
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setUseCaches(false);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "Kairo-Android/0.12");
+        connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
         }

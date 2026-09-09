@@ -4,8 +4,9 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| < 0.1   | :x:                |
+| 0.14.x  | :white_check_mark: |
+| 0.13.x  | :white_check_mark: |
+| < 0.13  | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -33,6 +34,7 @@ Kairo is designed with the following principles:
 - Write operations (GitHub, Vercel, Slack, Discord, n8n, code execution, phone intents) require visible confirmation.
 - There is no background push, deployment, or webhook behavior.
 - Search results and artifacts are only attached or shared when the user explicitly chooses to do so.
+- Optional app-lock PIN is hashed with SHA-256 + salt on this device and is never sent to a provider.
 - Cleartext HTTP is allowed only to support local Ollama / LAN endpoints; cloud providers default to HTTPS.
 
 Thank you for helping keep Kairo and its users safe.

@@ -6,10 +6,16 @@ Kairo is a provider-neutral Android AI workspace written in Java. It combines a 
 
 ## Included
 
-- **Voice assistant** with spoken commands (new chat, deep mode, open arena, theme, dictate) and optional continuous auto-send.\n- **Themes** — Dark, Light, and System colour.\n- **Ubuntu-style sandbox terminal** (allow-listed diagnostics + private file create/zip/templates) — not a full VM.\n- **Files & images** — templates for py/ts/java/kt/cpp/c/css/xml/md/txt/zip…, camera capture, Image studio.\n- **Chat workspace** with a premium mockup-inspired dark UI, sidebar sessions, greeting home tiles, refined message bubbles, model badges, searchable history, rename/share/clear, copy/retry, and suggestion chips.
+- **Voice assistant** with spoken commands (new chat, deep mode, open arena, theme, dictate) and optional continuous auto-send. Ordinary dictation is not hijacked by greedy “files” matching.
+- **Themes** — Dark, Light, and System colour.
+- **Ubuntu-style sandbox terminal** (allow-listed diagnostics + private file create/zip/templates) — not a full VM.
+- **Files & images** — templates for py/ts/java/kt/cpp/c/css/xml/md/txt/zip…, camera capture (permission-gated), Image studio.
+- **Slash commands** (`/help`, `/code`, `/review`, `/deep`, `/file`, `/summarize`…) parsed on-device before a request is sent.
+- **Find in chat, duplicate thread, edit last message, speak last answer**, optional numeric PIN app lock, and composer draft restore.
+- **Chat workspace** with a premium mockup-inspired dark UI, sidebar sessions (pinned first), greeting home tiles, refined message bubbles, model badges, searchable history, rename/share/clear, copy/retry/copy-code/speak, and suggestion chips.
 - **Responsive composer + live streaming** with real-time token output, blinking streaming caret, elapsed time + chars/sec indicator, stop-generation, improved markdown (bold/italic/headers/code), bounded attachments, vision hints, voice input, model selection, tool shortcuts, Fast/Balanced/Deep reasoning, Hermes plan/process/review, and a 32k prompt guardrail.
 - **Artifacts workspace** for creating private files, generating code through the AI composer, saving generated code blocks, editing in a monospace preview, copying, sharing, exporting, deleting, and bounded safe storage. Language presets cover **JavaScript, TypeScript, Kotlin, Java, C++, C, Assembly, CSS**, Linux shell, Python, HTML, and JSON.
-- **Provider adapters** for **Experiential Labs** (GPT-6 Astra via `api.experientiallabs.ai/v1`), OpenRouter, Groq, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama.
+- **Provider adapters** for **Experiential Labs** (GPT-6 Astra via `api.experientiallabs.ai/v1`), OpenRouter, Groq, **xAI Grok**, **Google Gemini**, **Hugging Face**, **Perplexity Sonar**, Kimi / Moonshot, NVIDIA NIM, Mistral AI, Anthropic Messages, OpenAI, custom OpenAI-compatible endpoints, and Ollama.
 - **Web search and dual-model mode** with Brave Search + DuckDuckGo fallback, user-selected source insertion, and polished dual-panel live streaming comparisons (A/B badges, independent stop, copy & save).
 - **Connectors workspace** for GitHub, Vercel, n8n, Slack, Notion, Linear, Supabase, and Discord webhooks. Inspect GitHub context, review Vercel projects/deployments, create a confirmed Git-backed deployment, inspect n8n workflows/executions, search Notion or Linear issues, preview Supabase rows, or send reviewed team updates.
 - **Device setup and provider login** with a private installation id, local pairing label, device profile, setup checklist, and official browser sign-in links. Kairo never receives provider passwords and stores only encrypted tokens.
@@ -53,6 +59,7 @@ The repository keeps the Gradle distribution out of source control. The included
 10. Use **Safe phone** for visible, confirmation-gated browser/settings/Wi-Fi/camera/dialer intents. Use **Sandbox console** for the bounded local diagnostics allow-list and runtime report; it is not an unrestricted Linux or Ubuntu shell.
 11. Use **Settings → Generation controls** to choose Concise/Balanced/Detailed output plus Fast/Balanced/Deep reasoning. Deep mode requests stronger planning and verification without exposing hidden chain-of-thought.
 12. For GitHub tools, create a fine-grained token with only the repository permissions you need, save it under **Settings → GitHub Agent**, and review the second confirmation dialog before every write.
+13. Type `/help` in Chat for slash commands. Optional PIN lock lives under **Settings → Appearance & voice**. What’s new and feature ideas are in the command palette.
 
 Provider free tiers, model IDs, quotas, and availability change. The catalog labels are guidance rather than a promise of unlimited free usage; use **Refresh** when a provider exposes a live model list.
 
@@ -82,7 +89,7 @@ CHANGELOG.md                       # Version history
 
 - Do not commit API keys, GitHub tokens, signing files, or `local.properties`.
 - Cloud keys and the memory vault are encrypted at rest with Android Keystore and are only read immediately before a request or local review.
-- Recognizable credentials pasted into Chat are detected locally, shown only in masked form, blocked from being sent, and saved only after explicit user confirmation. Local chat-history persistence and transcript sharing redact recognized provider credentials as a defense in depth.
+- Recognizable credentials pasted into Chat are detected locally, shown only in masked form, blocked from being sent, and saved only after explicit user confirmation. Local chat-history persistence and transcript sharing redact recognized provider credentials as a defense in depth. An optional app-lock PIN is hashed on-device (SHA-256 + salt) and never sent to a provider.
 - The app allows cleartext traffic only because a user may point Ollama at a local/LAN HTTP endpoint. Cloud provider URLs are HTTPS by default.
 - GitHub, Vercel, n8n, Slack, and Discord write operations are separate, visible actions; there is no background push, deployment, workflow activation, message, or webhook behavior. Linear is read-only in Kairo.
 - Search results are not silently attached to prompts: the user must select **Use in chat**. Generated artifacts are private app files and are only shared when the user chooses Share. Image attachments are read into a bounded 3 MB inline payload and can be removed from the composer before sending.

@@ -124,7 +124,17 @@ public final class ToolRegistry {
             new ToolSpec("dev_loop_cycle", "Dev loop cycle",
                     "Run one Plan→Code→Test→Review→Edit→Debug cycle and report CONTINUE LOOP or DONE.", false, false),
             new ToolSpec("hermes_handoff", "Hermes handoff pack",
-                    "Produce a final handoff summary with risks, next steps, and confirmation checklist.", false, false)
+                    "Produce a final handoff summary with risks, next steps, and confirmation checklist.", false, false),
+            new ToolSpec("slash_commands", "Slash commands",
+                    "Parse on-device /code /review /deep /file /summarize commands before a request is sent.", false, false),
+            new ToolSpec("find_in_conversation", "Find in chat",
+                    "Keyword search the current thread and jump to a matching snippet.", false, false),
+            new ToolSpec("speak_answer", "Speak answer",
+                    "Read the latest assistant answer with on-device text-to-speech. Nothing is uploaded.", false, false),
+            new ToolSpec("pin_lock", "PIN app lock",
+                    "Optional numeric PIN hashed on-device. Complements the existing unlock gate.", true, false),
+            new ToolSpec("duplicate_conversation", "Duplicate conversation",
+                    "Copy the current thread into a new local session without contacting a provider.", false, false)
     ));
 
     private ToolRegistry() {

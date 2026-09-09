@@ -33,6 +33,13 @@ public final class AgentPromptBuilder {
 
     public static String systemPrompt(String agentId, List<String> enabledSkills, String languagePresetId,
                                       String responseStyle, String reasoningMode, String memoryContext) {
+        return systemPrompt(agentId, enabledSkills, languagePresetId, responseStyle, reasoningMode,
+                memoryContext, "");
+    }
+
+    public static String systemPrompt(String agentId, List<String> enabledSkills, String languagePresetId,
+                                      String responseStyle, String reasoningMode, String memoryContext,
+                                      String projectInstructions) {
         String base = basePrompt(agentId);
         String instructions = SkillCatalog.instructions(enabledSkills);
         LanguagePreset preset = LanguageCatalog.find(languagePresetId);
@@ -63,6 +70,10 @@ public final class AgentPromptBuilder {
         }
         if (memoryContext != null && !memoryContext.trim().isEmpty()) {
             prompt.append("\n\n").append(memoryContext.trim());
+        }
+        if (projectInstructions != null && !projectInstructions.trim().isEmpty()) {
+            prompt.append("\n\nPinned project / system instructions from the user:\n")
+                    .append(projectInstructions.trim());
         }
         return prompt.toString();
     }

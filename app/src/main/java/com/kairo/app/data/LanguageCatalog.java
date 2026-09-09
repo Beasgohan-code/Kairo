@@ -69,7 +69,7 @@ public final class LanguageCatalog {
             case "xml":
                 return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <string name=\"app_name\">Kairo</string>\n</resources>\n";
             case "json":
-                return "{\n  \"name\": \"kairo\",\n  \"version\": \"0.13.0\"\n}\n";
+                return "{\n  \"name\": \"kairo\",\n  \"version\": \"0.14.0\"\n}\n";
             case "markdown":
                 return "# Kairo note\n\n- Idea\n- Next step\n\n";
             case "yaml":

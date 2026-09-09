@@ -146,7 +146,7 @@ public final class N8nClient {
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("X-N8N-API-KEY", token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.2");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");

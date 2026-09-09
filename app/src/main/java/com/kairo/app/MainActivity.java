@@ -38,6 +38,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.kairo.app.agent.AgentModes;
 import com.kairo.app.agent.AgentOrchestrator;
 import com.kairo.app.agent.CodeRunner;
 import com.kairo.app.agent.AgentPromptBuilder;
@@ -46,12 +47,23 @@ import com.kairo.app.agent.ToolSpec;
 import com.kairo.app.core.ApiKeyStore;
 import com.kairo.app.core.AppPreferences;
 import com.kairo.app.core.ArtifactStore;
+import com.kairo.app.core.CodeFenceExtractor;
+import com.kairo.app.core.ConversationSearch;
 import com.kairo.app.core.ConversationStore;
 import com.kairo.app.core.DeviceSetupStore;
 import com.kairo.app.core.ApiKeyDetector;
+import com.kairo.app.core.FollowUpSuggestions;
+import com.kairo.app.core.Formatters;
 import com.kairo.app.core.MemoryStore;
 import com.kairo.app.core.ProviderConfig;
+import com.kairo.app.core.SlashCommands;
+import com.kairo.app.core.TokenEstimator;
+import com.kairo.app.core.TranscriptExport;
+import com.kairo.app.core.UnifiedDiff;
 import com.kairo.app.core.UsageTracker;
+import com.kairo.app.core.VoiceCommandRouter;
+import com.kairo.app.data.FeatureRoadmap;
+import com.kairo.app.data.WhatsNew;
 import com.kairo.app.network.BitbucketClient;
 import com.kairo.app.network.GitLabClient;
 import com.kairo.app.network.WebhookTester;
@@ -198,6 +210,9 @@ public class MainActivity extends Activity {
     private static final int VOICE_PERMISSION_REQUEST = 7103;
     private static final int EXPORT_ARTIFACT_REQUEST = 7104;
     private static final int CAMERA_CAPTURE_REQUEST = 7106;
+    private static final int CAMERA_PERMISSION_REQUEST = 7107;
+
+    private android.speech.tts.TextToSpeech textToSpeech;
 
     // Theme-aware colors (Claude / Groq inspired)
     private int background;
@@ -248,9 +263,30 @@ public class MainActivity extends Activity {
 
     private void maybeRequireAppUnlock() {
         if (!preferences.isAppLockEnabled() || sessionUnlocked) return;
+        if (preferences.hasPin()) {
+            EditText pin = input("4–8 digit PIN", true);
+            pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+            new AlertDialog.Builder(this)
+                    .setTitle("Unlock Kairo")
+                    .setMessage("Enter your on-device PIN. It is hashed locally and never sent to a provider.")
+                    .setView(pin)
+                    .setCancelable(false)
+                    .setPositiveButton("Unlock", (d, w) -> {
+                        if (preferences.verifyPin(pin.getText().toString())) {
+                            sessionUnlocked = true;
+                        } else {
+                            toast("Incorrect PIN");
+                            sessionUnlocked = false;
+                            maybeRequireAppUnlock();
+                        }
+                    })
+                    .setNegativeButton("Exit", (d, w) -> finish())
+                    .show();
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("Unlock Kairo")
-                .setMessage("App lock is enabled. Confirm to continue. (Enable device biometrics in system settings for stronger protection; this build uses an explicit unlock step to stay dependency-free.)")
+                .setMessage("App lock is enabled. Confirm to continue, or set a PIN in Settings for a stronger gate. (This build stays dependency-free — no biometric SDK.)")
                 .setCancelable(false)
                 .setPositiveButton("Unlock", (d, w) -> sessionUnlocked = true)
                 .setNegativeButton("Exit", (d, w) -> finish())
@@ -291,6 +327,8 @@ public class MainActivity extends Activity {
         loadConversationHistory();
         buildShell();
         showChat();
+        restoreComposerDraft();
+        maybeShowWhatsNew();
     }
 
     @Override
@@ -309,6 +347,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         saveCurrentSession();
+        if (composer != null && preferences != null) {
+            preferences.setComposerDraft(composer.getText().toString());
+        }
         super.onPause();
     }
 
@@ -318,6 +359,11 @@ public class MainActivity extends Activity {
         if (arenaLeftRequest != null) arenaLeftRequest.cancel();
         if (arenaRightRequest != null) arenaRightRequest.cancel();
         stopLiveTicker();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+        }
         super.onDestroy();
     }
 
@@ -367,10 +413,12 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == VOICE_PERMISSION_REQUEST
-                && grantResults.length > 0
+        if (grantResults.length > 0
                 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            startVoiceInput();
+            if (requestCode == VOICE_PERMISSION_REQUEST) startVoiceInput();
+            else if (requestCode == CAMERA_PERMISSION_REQUEST) openCameraCapture();
+        } else if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            toast("Camera permission is needed to attach a photo");
         }
     }
 
@@ -654,11 +702,20 @@ public class MainActivity extends Activity {
         if (drawerSessions == null) return;
         drawerSessions.removeAllViews();
         String query = drawerSearch == null ? "" : drawerSearch.getText().toString().trim().toLowerCase(Locale.US);
-        int shown = 0;
+        java.util.Set<String> pinned = preferences.getPinnedSessionIds();
+        java.util.List<ConversationSession> ordered = new java.util.ArrayList<>();
+        java.util.List<ConversationSession> rest = new java.util.ArrayList<>();
         for (ConversationSession session : savedSessions) {
+            if (pinned.contains(session.getId())) ordered.add(session);
+            else rest.add(session);
+        }
+        ordered.addAll(rest);
+        int shown = 0;
+        for (ConversationSession session : ordered) {
             if (!query.isEmpty() && !session.getTitle().toLowerCase(Locale.US).contains(query)) continue;
             boolean active = session.getId().equals(activeSessionId);
-            TextView item = text(session.getTitle(), 13, active ? primaryText : secondaryText);
+            boolean isPinned = pinned.contains(session.getId());
+            TextView item = text((isPinned ? "📌  " : "") + session.getTitle(), 13, active ? primaryText : secondaryText);
             item.setSingleLine(true);
             item.setEllipsize(android.text.TextUtils.TruncateAt.END);
             item.setGravity(Gravity.CENTER_VERTICAL);
@@ -775,7 +832,7 @@ public class MainActivity extends Activity {
         composer = new EditText(this);
         composer.setTextColor(primaryText);
         composer.setHintTextColor(mutedText);
-        composer.setHint("Ask Kairo anything…");
+        composer.setHint("Ask Kairo…  ·  try /help");
         composer.setTextSize(15);
         composer.setGravity(Gravity.TOP | Gravity.START);
         composer.setMinLines(1);
@@ -876,6 +933,7 @@ public class MainActivity extends Activity {
         footer.setPadding(0, dp(6), 0, dp(2));
         page.addView(footer, new LinearLayout.LayoutParams(-1, dp(24)));
         content.addView(page, new LinearLayout.LayoutParams(-1, -1));
+        restoreComposerDraft();
     }
 
     private void renderChatHistory() {
@@ -1102,6 +1160,23 @@ public class MainActivity extends Activity {
             retry.setPadding(dp(10), dp(5), dp(6), dp(4));
             retry.setOnClickListener(view -> regenerateLastResponse(message));
             messageActions.addView(retry, wrap());
+            if (!CodeFenceExtractor.lastFence(message).isEmpty()) {
+                TextView copyCode = text("Copy code", 11, mutedText);
+                copyCode.setPadding(dp(10), dp(5), dp(6), dp(4));
+                copyCode.setOnClickListener(view -> {
+                    copyToClipboard(CodeFenceExtractor.lastFence(message));
+                    toast("Code block copied");
+                });
+                messageActions.addView(copyCode, wrap());
+            }
+            TextView speak = text("Speak", 11, mutedText);
+            speak.setPadding(dp(10), dp(5), dp(6), dp(4));
+            speak.setOnClickListener(view -> speakAnswer(message));
+            messageActions.addView(speak, wrap());
+            TextView shareAnswer = text("Share", 11, mutedText);
+            shareAnswer.setPadding(dp(10), dp(5), dp(6), dp(4));
+            shareAnswer.setOnClickListener(view -> sharePlainText("Kairo answer", ApiKeyDetector.redact(message)));
+            messageActions.addView(shareAnswer, wrap());
             TextView retryMode = text("Retry as…", 11, mutedText);
             retryMode.setPadding(dp(10), dp(5), dp(6), dp(4));
             retryMode.setOnClickListener(view -> {
@@ -1247,6 +1322,40 @@ public class MainActivity extends Activity {
             return;
         }
         String prompt = composer.getText().toString().trim();
+        SlashCommands.Result slash = SlashCommands.parse(prompt);
+        if (slash.isMatched()) {
+            if (slash.getAgentId() != null) {
+                activeAgentId = AgentModes.normalize(slash.getAgentId());
+                if (modeButton != null) modeButton.setText(agentModeLabel());
+            }
+            if (slash.getReasoningMode() != null) {
+                preferences.setReasoningMode(slash.getReasoningMode());
+                refreshReasoningPills();
+            }
+            if ("help".equals(slash.getHelpTopic())) {
+                composer.setText("");
+                showSlashHelp();
+                return;
+            }
+            if ("arena".equals(slash.getHelpTopic())) {
+                composer.setText("");
+                showArena();
+                return;
+            }
+            if ("search".equals(slash.getHelpTopic())) {
+                composer.setText("");
+                showWebSearch();
+                return;
+            }
+            if (slash.isConsumeOnly()) {
+                composer.setText("");
+                toast(slash.getReasoningMode() == null ? "Command applied" : (reasoningLabel(slash.getReasoningMode()) + " reasoning"));
+                return;
+            }
+            prompt = slash.getPrompt();
+            composer.setText(prompt);
+            composer.setSelection(composer.length());
+        }
         if (prompt.isEmpty() && pendingAttachments.isEmpty()) return;
         if (prompt.length() > 32_000) {
             toast("Messages are limited to 32,000 characters");
@@ -1318,14 +1427,10 @@ public class MainActivity extends Activity {
         scrollChatToBottom();
 
         List<ChatMessage> requestMessages = new ArrayList<>();
-        if (!"chat".equals(activeAgentId)
-                || !preferences.getEnabledSkills().isEmpty()
-                || !"auto".equals(preferences.getLanguagePreset())
-                || memoryStore.hasMemories()) {
-            requestMessages.add(new ChatMessage("system", AgentPromptBuilder.systemPrompt(
-                    activeAgentId, preferences.getEnabledSkills(), preferences.getLanguagePreset(),
-                    preferences.getResponseStyle(), preferences.getReasoningMode(), memoryStore.promptContext())));
-        }
+        requestMessages.add(new ChatMessage("system", AgentPromptBuilder.systemPrompt(
+                activeAgentId, preferences.getEnabledSkills(), preferences.getLanguagePreset(),
+                preferences.getResponseStyle(), preferences.getReasoningMode(), memoryStore.promptContext(),
+                preferences.getSystemInstructions())));
         requestMessages.addAll(conversation);
         activeRequest = ApiClient.sendChatStreaming(
                 provider,
@@ -1456,8 +1561,9 @@ public class MainActivity extends Activity {
         if (chatHistory != null) {
             renderChatHistory();
             showFollowUpChips(answer);
-            int approxTokens = Math.max(1, answer.length() / 4);
-            toast("~" + approxTokens + " tokens (estimate)");
+            int approxTokens = TokenEstimator.estimate(answer);
+            usageTracker.recordTokens(approxTokens);
+            toast(TokenEstimator.label(approxTokens));
             if ("hermes".equals(activeAgentId)) {
                 showHermesTimeline(
                         "Captured from the latest Hermes run.",
@@ -1525,30 +1631,17 @@ public class MainActivity extends Activity {
     }
 
     private String agentModeLabel() {
-        if ("chat".equals(activeAgentId)) return "Chat mode";
-        if ("code".equals(activeAgentId)) return "Code agent";
-        if ("hermes".equals(activeAgentId)) return "Hermes orchestrator";
-        if ("devloop".equals(activeAgentId)) return "Dev Loop";
-        if ("artifact".equals(activeAgentId)) return "Artifact agent";
-        if ("browser".equals(activeAgentId)) return "Browser agent";
-        if ("research".equals(activeAgentId)) return "Research agent";
-        if ("automation".equals(activeAgentId)) return "Automation agent";
-        if ("arena".equals(activeAgentId)) return "Arena agent";
-        if ("phone".equals(activeAgentId)) return "Safe phone";
-        return "Chat mode";
+        return AgentModes.labelFor(activeAgentId);
     }
 
     private void showAgentModePicker() {
-        String[] modes = {"Chat mode · focused conversation", "Code agent · plan and review",
-                "Hermes orchestrator · plan and hand off", "Dev Loop · plan code test review", "Artifact agent · return complete files",
-                "Browser agent · cite selected sources", "Research agent · compare options",
-                "Automation agent · GitHub, Vercel, n8n", "Arena agent · critique answers",
-                "Safe phone assistant · visible actions"};
-        String[] ids = {"chat", "code", "hermes", "artifact", "browser", "research", "automation", "arena", "phone"};
+        String[] modes = AgentModes.pickerLabels();
+        String[] ids = AgentModes.pickerIds();
         new AlertDialog.Builder(this)
                 .setTitle("Response mode")
                 .setMessage("Mode changes the system instruction sent with the next request. Tool actions still require your tap.")
                 .setItems(modes, (dialog, which) -> {
+                    if (which < 0 || which >= ids.length) return;
                     activeAgentId = ids[which];
                     if (modeButton != null) modeButton.setText(agentModeLabel());
                     toast(agentModeLabel() + " enabled");
@@ -1557,23 +1650,34 @@ public class MainActivity extends Activity {
     }
 
     private void showChatMenu() {
-        String[] actions = {"AI actions", "Skills & language", "Memories", "Rename conversation", "Pin / unpin", "Share transcript", "Clear messages", "Search sessions"};
+        String[] actions = {
+                "AI actions", "Skills & language", "Memories",
+                "Find in chat", "Edit last message", "Duplicate conversation",
+                "Rename conversation", "Pin / unpin", "Share transcript",
+                "Speak last answer", "Slash help", "Clear messages", "Search sessions"
+        };
         new AlertDialog.Builder(this)
                 .setTitle(activeSessionTitle)
                 .setItems(actions, (dialog, which) -> {
                     if (which == 0) showAiFeaturesPicker();
                     else if (which == 1) showSkillsSettings();
                     else if (which == 2) showMemories();
-                    else if (which == 3) showRenameDialog();
-                    else if (which == 4) {
+                    else if (which == 3) showFindInChat();
+                    else if (which == 4) editLastUserMessage();
+                    else if (which == 5) duplicateCurrentConversation();
+                    else if (which == 6) showRenameDialog();
+                    else if (which == 7) {
                         if (activeSessionId != null) {
                             preferences.togglePinnedSession(activeSessionId);
                             boolean pinned = preferences.getPinnedSessionIds().contains(activeSessionId);
                             toast(pinned ? "Pinned" : "Unpinned");
+                            refreshDrawerSessions();
                         }
-                    } else if (which == 5) shareTranscript();
-                    else if (which == 6) confirmClearConversation();
-                    else if (which == 7) showSessionSearch();
+                    } else if (which == 8) shareTranscript();
+                    else if (which == 9) speakLastAnswer();
+                    else if (which == 10) showSlashHelp();
+                    else if (which == 11) confirmClearConversation();
+                    else if (which == 12) showSessionSearch();
                 })
                 .show();
     }
@@ -1634,16 +1738,7 @@ public class MainActivity extends Activity {
             toast("There is no transcript to share yet");
             return;
         }
-        StringBuilder transcript = new StringBuilder(activeSessionTitle).append("\n\n");
-        for (ChatMessage message : conversation) {
-            transcript.append("user".equals(message.getRole()) ? "You" : "Kairo")
-                    .append(":\n").append(ApiKeyDetector.redact(message.getContent())).append("\n\n");
-        }
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("text/plain");
-        share.putExtra(Intent.EXTRA_SUBJECT, activeSessionTitle);
-        share.putExtra(Intent.EXTRA_TEXT, transcript.toString());
-        startActivity(Intent.createChooser(share, "Share conversation"));
+        sharePlainText(activeSessionTitle, TranscriptExport.sharePlain(activeSessionTitle, conversation));
     }
 
     private void confirmClearConversation() {
@@ -2010,12 +2105,16 @@ public class MainActivity extends Activity {
         String[][] providers = {
                 {"experiential", "Experiential Labs", "GPT-6 Astra & promo free rows"},
                 {"groq", "Groq", "Ultra-fast inference"},
+                {"xai", "xAI", "Grok OpenAI-compatible API"},
+                {"google", "Google Gemini", "Gemini via OpenAI-compatible endpoint"},
                 {"nvidia", "NVIDIA NIM", "Hosted open models"},
                 {"anthropic", "Anthropic", "Claude Messages API"},
                 {"openai", "OpenAI", "GPT chat models"},
                 {"openrouter", "OpenRouter", "Large multi-provider catalog"},
                 {"mistral", "Mistral AI", "Mistral & Codestral"},
                 {"moonshot", "Kimi", "Long-context reasoning"},
+                {"huggingface", "Hugging Face", "Open models via HF router"},
+                {"perplexity", "Perplexity", "Sonar grounded chat"},
                 {"ollama", "Ollama", "Local models · no key"}
         };
         for (String[] p : providers) {
@@ -4549,14 +4648,7 @@ public class MainActivity extends Activity {
     }
 
     private String latestCodeBlockFromText(String answer) {
-        if (answer == null) return "";
-        int open = answer.indexOf("```");
-        if (open < 0) return answer;
-        int contentStart = answer.indexOf('\n', open);
-        if (contentStart < 0) contentStart = open + 3;
-        else contentStart++;
-        int close = answer.indexOf("```", contentStart);
-        return answer.substring(contentStart, close < 0 ? answer.length() : close).trim();
+        return CodeFenceExtractor.lastFenceOrBody(answer);
     }
 
     private void showGenerationSettings() {
@@ -4796,6 +4888,15 @@ public class MainActivity extends Activity {
                     showSettings();
                 }), marginParams(0, 10, 0, 0));
         lookPanel.addView(smallButton("Test voice assistant", mint, v -> startVoiceInput()), marginParams(0, 8, 0, 0));
+        lookPanel.addView(text("App lock PIN", 11, mutedText), marginParams(0, 12, 0, 6));
+        lookPanel.addView(text(preferences.hasPin()
+                ? "A numeric PIN is set. Unlock requires it when app lock is on."
+                : "Optional 4–8 digit PIN, hashed on this device.", 12, secondaryText), wrap());
+        lookPanel.addView(smallButton(preferences.hasPin() ? "Change / remove PIN" : "Set PIN",
+                lavender, v -> showPinEditor()), marginParams(0, 10, 0, 0));
+        lookPanel.addView(smallButton("What’s new in " + WhatsNew.currentVersion(), mint,
+                v -> showWhatsNew(true)), marginParams(0, 8, 0, 0));
+        lookPanel.addView(smallButton("Feature ideas", secondaryText, v -> showFeatureIdeas()), marginParams(0, 8, 0, 0));
         page.addView(lookPanel, marginParams(0, 8, 0, 4));
         ScrollView scroll = new ScrollView(this);
         LinearLayout body = new LinearLayout(this);
@@ -4816,6 +4917,10 @@ public class MainActivity extends Activity {
         addProviderRow(body, "mistral", "Mistral AI", "Official OpenAI-compatible endpoint for Mistral and Codestral.");
         addProviderRow(body, "anthropic", "Anthropic", "Claude models through the official Messages API.");
         addProviderRow(body, "openai", "OpenAI", "OpenAI-compatible chat models.");
+        addProviderRow(body, "xai", "xAI", "Grok models through api.x.ai/v1.");
+        addProviderRow(body, "google", "Google Gemini", "Gemini via the OpenAI-compatible Generative Language API.");
+        addProviderRow(body, "huggingface", "Hugging Face", "Open models through router.huggingface.co/v1.");
+        addProviderRow(body, "perplexity", "Perplexity", "Sonar grounded chat through api.perplexity.ai.");
         addProviderRow(body, "custom", "Custom OpenAI-compatible", "LM Studio, vLLM, or another compatible server.");
         body.addView(sectionLabel("LOCAL & AGENT ACCESS"), marginParams(0, 21, 0, 7));
         addProviderRow(body, "ollama", "Ollama", "No key required. Point Kairo at an emulator or LAN endpoint.");
@@ -4878,7 +4983,7 @@ public class MainActivity extends Activity {
         metrics.setPadding(0, dp(10), 0, dp(0));
         addMetric(metrics, "Threads", String.valueOf(savedSessions.size()));
         addMetric(metrics, "Messages", String.valueOf(usageTracker.messageCount()));
-        addMetric(metrics, "Memories", String.valueOf(memoryStore.size()));
+        addMetric(metrics, "Tokens", Formatters.compactCount((int) Math.min(Integer.MAX_VALUE, usageTracker.tokenCount())));
         addMetric(metrics, "Catalog", String.valueOf(ModelCatalog.all().size()));
         health.addView(metrics, wrapParams());
         health.addView(text("Selected: " + modelTitle(), 11, mutedText), marginParams(0, 8, 0, 0));
@@ -5279,6 +5384,10 @@ public class MainActivity extends Activity {
                 || id.contains("gemini")
                 || id.contains("gpt-4o")
                 || id.contains("gpt-4.1")
+                || id.contains("gpt-5")
+                || id.contains("gpt-6")
+                || id.contains("astra")
+                || id.contains("grok")
                 || id.contains("llama-4")
                 || id.contains("gemma-3")
                 || id.contains("qwen2.5-vl")
@@ -5466,7 +5575,12 @@ public class MainActivity extends Activity {
                 "Cycle theme (dark/light/system)",
                 "Toggle continuous voice",
                 "Export conversation (PDF)",
-                "Toggle app lock"
+                "Toggle app lock",
+                "Find in chat",
+                "Slash command help",
+                "What’s new",
+                "Feature ideas",
+                "Set / change PIN"
         };
         new AlertDialog.Builder(this)
                 .setTitle("Command palette")
@@ -5512,6 +5626,11 @@ public class MainActivity extends Activity {
                             sessionUnlocked = !preferences.isAppLockEnabled();
                             toast(preferences.isAppLockEnabled() ? "App lock enabled" : "App lock disabled");
                             break;
+                        case 21: showFindInChat(); break;
+                        case 22: showSlashHelp(); break;
+                        case 23: showWhatsNew(true); break;
+                        case 24: showFeatureIdeas(); break;
+                        case 25: showPinEditor(); break;
                     }
                 })
                 .show();
@@ -5582,27 +5701,8 @@ public class MainActivity extends Activity {
             toast("Nothing to export");
             return;
         }
-        StringBuilder md = new StringBuilder();
-        md.append("# Conversation export\n\n");
-        md.append("_Redacted export · credentials stripped · private_\n\n");
-        for (ChatMessage m : conversation) {
-            String role = "user".equals(m.getRole()) ? "You" : "Assistant";
-            md.append("### ").append(role).append("\n\n");
-            String body = m.getContent() == null ? "" : m.getContent();
-            // light redaction of common key patterns
-            body = body.replaceAll("(?i)(sk-[a-zA-Z0-9]{16,})", "[REDACTED_KEY]");
-            body = body.replaceAll("(?i)(ghp_[a-zA-Z0-9]{16,})", "[REDACTED_TOKEN]");
-            md.append(body).append("\n\n");
-        }
-        String sys = preferences.getSystemInstructions();
-        if (sys != null && !sys.trim().isEmpty()) {
-            md.append("---\n\n### Project instructions\n\n").append(sys).append("\n");
-        }
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("text/markdown");
-        share.putExtra(Intent.EXTRA_TEXT, md.toString());
-        share.putExtra(Intent.EXTRA_SUBJECT, "Conversation export");
-        startActivity(Intent.createChooser(share, "Export conversation"));
+        sharePlainText("Conversation export",
+                TranscriptExport.markdown(activeSessionTitle, conversation, preferences.getSystemInstructions()));
     }
 
     private void offerMemorySuggestion(String answer) {
@@ -5657,9 +5757,7 @@ public class MainActivity extends Activity {
             y += 22;
             for (ChatMessage m : conversation) {
                 String role = "user".equals(m.getRole()) ? "You" : "Assistant";
-                String body = m.getContent() == null ? "" : m.getContent();
-                body = body.replaceAll("(?i)(sk-[a-zA-Z0-9]{16,})", "[REDACTED_KEY]");
-                body = body.replaceAll("(?i)(ghp_[a-zA-Z0-9]{16,})", "[REDACTED_TOKEN]");
+                String body = ApiKeyDetector.redact(m.getContent() == null ? "" : m.getContent());
                 String block = role + ": " + body;
                 for (String line : wrapPdfLines(block, 80)) {
                     if (y > pageHeight - 50) {
@@ -5861,23 +5959,7 @@ public class MainActivity extends Activity {
     }
 
     private void showDiffThenConfirm(String title, String before, String after, Runnable onConfirm) {
-        String b = before == null ? "" : before;
-        String a = after == null ? "" : after;
-        StringBuilder diff = new StringBuilder();
-        String[] bl = b.split("\n", -1);
-        String[] al = a.split("\n", -1);
-        int max = Math.max(bl.length, al.length);
-        int shown = 0;
-        for (int i = 0; i < max && shown < 80; i++) {
-            String left = i < bl.length ? bl[i] : "";
-            String right = i < al.length ? al[i] : "";
-            if (!left.equals(right)) {
-                if (!left.isEmpty()) diff.append("- ").append(left).append('\n');
-                if (!right.isEmpty()) diff.append("+ ").append(right).append('\n');
-                shown++;
-            }
-        }
-        if (diff.length() == 0) diff.append("(no line differences detected)\n");
+        String diff = UnifiedDiff.diff(before, after, 80) + "\n";
         TextView tv = text(diff.toString(), 12, secondaryText);
         tv.setTypeface(Typeface.MONOSPACE);
         tv.setTextIsSelectable(true);
@@ -6197,6 +6279,12 @@ public class MainActivity extends Activity {
     }
 
     private void openCameraCapture() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && checkSelfPermission(android.Manifest.permission.CAMERA)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
+            return;
+        }
         Intent camera = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
         try {
             startActivityForResult(camera, CAMERA_CAPTURE_REQUEST);
@@ -6230,106 +6318,91 @@ public class MainActivity extends Activity {
     }
 
     private void handleVoiceCommand(String spoken) {
-        if (spoken == null || spoken.trim().isEmpty()) return;
-        String raw = spoken.trim();
-        String lower = raw.toLowerCase(Locale.US);
-
-        // Assistant-style command routing
-        if (matchesAny(lower, "new chat", "start over", "clear chat")) {
-            startNewChat();
-            toast("New chat");
-            return;
+        VoiceCommandRouter.Result routed = VoiceCommandRouter.route(spoken);
+        switch (routed.getAction()) {
+            case NEW_CHAT:
+                startNewChat();
+                toast("New chat");
+                return;
+            case SETTINGS:
+                showSettings();
+                return;
+            case MODELS:
+                showModelPicker();
+                return;
+            case ARENA:
+                showArena();
+                return;
+            case SANDBOX:
+                showSandbox();
+                return;
+            case CREATE_FILE:
+                showQuickCreateFile();
+                return;
+            case ARTIFACTS:
+                showArtifacts();
+                return;
+            case IMAGE_STUDIO:
+                showImageStudio();
+                return;
+            case CAMERA:
+                openCameraCapture();
+                return;
+            case WEB_SEARCH:
+                showWebSearch();
+                return;
+            case THEME_DARK:
+                preferences.setThemeMode("dark");
+                recreate();
+                return;
+            case THEME_LIGHT:
+                preferences.setThemeMode("light");
+                recreate();
+                return;
+            case THEME_SYSTEM:
+                preferences.setThemeMode("system");
+                recreate();
+                return;
+            case FAST:
+                preferences.setReasoningMode("fast");
+                refreshReasoningPills();
+                toast("Fast reasoning");
+                return;
+            case DEEP:
+                preferences.setReasoningMode("deep");
+                refreshReasoningPills();
+                toast("Deep reasoning · GPT-6 Astra style");
+                return;
+            case BALANCED:
+                preferences.setReasoningMode("balanced");
+                refreshReasoningPills();
+                toast("Balanced reasoning");
+                return;
+            case GROQ:
+                activateGroqFastMode();
+                return;
+            case ASTRA: {
+                ModelInfo astra = ModelCatalog.find("experiential", "gpt-6-astra");
+                if (astra != null) {
+                    preferences.setModel(astra.getProviderId(), astra.getId());
+                    if (modelChip != null) modelChip.setText(modelTitle());
+                    toast("GPT-6 Astra selected");
+                } else toast("Astra model not in catalog");
+                return;
+            }
+            case CLAUDE:
+                showModels();
+                toast("Pick a Claude / Anthropic model");
+                return;
+            case SEND:
+                if (composer != null && composer.getText().length() > 0) sendMessage();
+                return;
+            case DICTATE:
+            default:
+                break;
         }
-        if (matchesAny(lower, "open settings", "settings")) {
-            showSettings();
-            return;
-        }
-        if (matchesAny(lower, "open models", "show models", "model picker")) {
-            showModelPicker();
-            return;
-        }
-        if (matchesAny(lower, "open arena", "model arena", "compare models")) {
-            showArena();
-            return;
-        }
-        if (matchesAny(lower, "open sandbox", "terminal", "ubuntu")) {
-            showSandbox();
-            return;
-        }
-        if (matchesAny(lower, "open artifacts", "files", "create file")) {
-            if (lower.contains("create")) showQuickCreateFile();
-            else showArtifacts();
-            return;
-        }
-        if (matchesAny(lower, "image studio", "generate image", "make image")) {
-            showImageStudio();
-            return;
-        }
-        if (matchesAny(lower, "take photo", "open camera", "camera")) {
-            openCameraCapture();
-            return;
-        }
-        if (matchesAny(lower, "web search", "search the web")) {
-            showWebSearch();
-            return;
-        }
-        if (matchesAny(lower, "dark mode")) {
-            preferences.setThemeMode("dark");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "light mode")) {
-            preferences.setThemeMode("light");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "system theme", "system mode")) {
-            preferences.setThemeMode("system");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "fast mode", "fast reasoning")) {
-            preferences.setReasoningMode("fast");
-            refreshReasoningPills();
-            toast("Fast reasoning");
-            return;
-        }
-        if (matchesAny(lower, "deep mode", "deep reasoning", "think hard")) {
-            preferences.setReasoningMode("deep");
-            refreshReasoningPills();
-            toast("Deep reasoning · GPT-6 Astra style");
-            return;
-        }
-        if (matchesAny(lower, "balanced mode")) {
-            preferences.setReasoningMode("balanced");
-            refreshReasoningPills();
-            toast("Balanced reasoning");
-            return;
-        }
-        if (matchesAny(lower, "use groq", "switch to groq")) {
-            activateGroqFastMode();
-            return;
-        }
-        if (matchesAny(lower, "use astra", "gpt 6", "gpt-6", "experiential")) {
-            ModelInfo astra = ModelCatalog.find("experiential", "gpt-6-astra");
-            if (astra != null) {
-                preferences.setModel(astra.getProviderId(), astra.getId());
-                if (modelChip != null) modelChip.setText(modelTitle());
-                toast("GPT-6 Astra selected");
-            } else toast("Astra model not in catalog");
-            return;
-        }
-        if (matchesAny(lower, "use claude", "anthropic")) {
-            showModels();
-            toast("Pick a Claude / Anthropic model");
-            return;
-        }
-        if (matchesAny(lower, "send", "go") && composer != null && composer.getText().length() > 0) {
-            sendMessage();
-            return;
-        }
-
-        // Default: dictate into composer, optionally auto-send when continuous
+        String raw = routed.getDictated();
+        if (raw.isEmpty()) return;
         if (composer == null) showChat();
         if (composer != null) {
             String existing = composer.getText().toString();
@@ -6340,14 +6413,6 @@ public class MainActivity extends Activity {
                 sendMessage();
             }
         }
-    }
-
-    private boolean matchesAny(String lower, String... phrases) {
-        for (String p : phrases) {
-            if (lower.equals(p) || lower.startsWith(p + " ") || lower.contains(" " + p)
-                    || lower.contains(p)) return true;
-        }
-        return false;
     }
 
     private void showQuickCreateFile() {
@@ -6508,34 +6573,209 @@ public class MainActivity extends Activity {
     }
 
     private String[] buildFollowUpSuggestions(String answer) {
-        // Simple heuristic suggestions inspired by Claude / ChatGPT follow-ups
-        String lower = answer == null ? "" : answer.toLowerCase(java.util.Locale.US);
-        if (lower.contains("code") || lower.contains("function") || lower.contains("class ") || lower.contains("```")) {
-            return new String[]{
-                    "Explain this code step by step",
-                    "Find potential bugs or edge cases",
-                    "Convert this to TypeScript"
-            };
+        return FollowUpSuggestions.forAnswer(answer);
+    }
+
+    private void restoreComposerDraft() {
+        if (composer == null || preferences == null) return;
+        String draft = preferences.getComposerDraft();
+        if (draft == null || draft.isEmpty()) return;
+        if (composer.getText().length() > 0) return;
+        composer.setText(draft);
+        composer.setSelection(composer.length());
+    }
+
+    private void maybeShowWhatsNew() {
+        if (preferences == null) return;
+        if (WhatsNew.currentVersion().equals(preferences.getWhatsNewSeen())) return;
+        if (!preferences.isOnboardingDone()) return;
+        showWhatsNew(false);
+    }
+
+    private void showWhatsNew(boolean force) {
+        new AlertDialog.Builder(this)
+                .setTitle("What’s new")
+                .setMessage(WhatsNew.releaseNotes())
+                .setPositiveButton("Got it", (d, w) -> preferences.setWhatsNewSeen(WhatsNew.currentVersion()))
+                .setNeutralButton(force ? "Ideas" : "Later", (d, w) -> {
+                    if (force) showFeatureIdeas();
+                    else preferences.setWhatsNewSeen(WhatsNew.currentVersion());
+                })
+                .show();
+    }
+
+    private void showFeatureIdeas() {
+        new AlertDialog.Builder(this)
+                .setTitle("Feature ideas")
+                .setMessage(FeatureRoadmap.asText())
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showSlashHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("Slash commands")
+                .setMessage(SlashCommands.helpText())
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showFindInChat() {
+        if (conversation.isEmpty()) {
+            toast("Nothing to search yet");
+            return;
         }
-        if (lower.contains("error") || lower.contains("exception") || lower.contains("fail")) {
-            return new String[]{
-                    "How do I fix this?",
-                    "Show a minimal reproducible example",
-                    "What are safer alternatives?"
-            };
+        EditText query = input("Find in this chat…", false);
+        new AlertDialog.Builder(this)
+                .setTitle("Find in chat")
+                .setView(query)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Search", (d, w) -> {
+                    String q = query.getText().toString();
+                    java.util.List<ConversationSearch.Hit> hits = ConversationSearch.search(conversation, q);
+                    if (hits.isEmpty()) {
+                        toast("No matches");
+                        return;
+                    }
+                    String[] labels = new String[Math.min(hits.size(), 20)];
+                    for (int i = 0; i < labels.length; i++) labels[i] = hits.get(i).label();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Matches (" + hits.size() + ")")
+                            .setItems(labels, (dd, which) -> {
+                                ConversationSearch.Hit hit = hits.get(which);
+                                toast(hit.getRole() + " · message " + (hit.getIndex() + 1));
+                            })
+                            .show();
+                })
+                .show();
+    }
+
+    private void editLastUserMessage() {
+        if (awaitingResponse) {
+            toast("Stop the current response first");
+            return;
         }
-        if (lower.length() > 600) {
-            return new String[]{
-                    "Summarize the key points",
-                    "Make this more concise",
-                    "Turn this into action items"
-            };
+        if (conversation.isEmpty()) {
+            toast("No message to edit");
+            return;
         }
-        return new String[]{
-                "Go deeper on this",
-                "Give a practical example",
-                "What should I do next?"
-        };
+        int last = conversation.size() - 1;
+        if ("assistant".equals(conversation.get(last).getRole())) {
+            conversation.remove(last);
+            last = conversation.size() - 1;
+        }
+        if (last < 0 || !"user".equals(conversation.get(last).getRole())) {
+            toast("No user message to edit");
+            renderChatHistory();
+            return;
+        }
+        ChatMessage user = conversation.remove(last);
+        if (composer == null) showChat();
+        if (composer != null) {
+            composer.setText(user.getContent());
+            composer.setSelection(composer.length());
+            composer.requestFocus();
+        }
+        saveCurrentSession();
+        renderChatHistory();
+        toast("Last message restored to composer");
+    }
+
+    private void duplicateCurrentConversation() {
+        if (conversation.isEmpty()) {
+            toast("Nothing to duplicate");
+            return;
+        }
+        saveCurrentSession();
+        String newId = ConversationStore.newId();
+        String title = activeSessionTitle;
+        if (title == null || title.trim().isEmpty()) title = "New conversation";
+        if (!title.startsWith("Copy of ")) title = "Copy of " + title;
+        ConversationSession copy = new ConversationSession(newId, title, System.currentTimeMillis(), null);
+        for (ChatMessage message : conversation) {
+            copy.getMessages().add(new ChatMessage(message.getRole(), message.getContent()));
+        }
+        savedSessions.add(0, copy);
+        conversationStore.save(savedSessions);
+        activateSession(copy, true);
+        toast("Conversation duplicated");
+    }
+
+    private void speakLastAnswer() {
+        for (int i = conversation.size() - 1; i >= 0; i--) {
+            if ("assistant".equals(conversation.get(i).getRole())) {
+                speakAnswer(conversation.get(i).getContent());
+                return;
+            }
+        }
+        toast("No answer to speak");
+    }
+
+    private void speakAnswer(String message) {
+        String plain = MarkdownRenderer.plain(message);
+        if (plain.trim().isEmpty()) {
+            toast("Nothing to speak");
+            return;
+        }
+        if (plain.length() > 3500) plain = plain.substring(0, 3500);
+        final String spoken = plain;
+        if (textToSpeech == null) {
+            textToSpeech = new android.speech.tts.TextToSpeech(this, status -> {
+                if (status == android.speech.tts.TextToSpeech.SUCCESS && textToSpeech != null) {
+                    textToSpeech.speak(spoken, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "kairo-answer");
+                } else {
+                    toast("Voice output is not available");
+                }
+            });
+        } else {
+            textToSpeech.speak(spoken, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "kairo-answer");
+        }
+    }
+
+    private void sharePlainText(String subject, String body) {
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("text/plain");
+        share.putExtra(Intent.EXTRA_SUBJECT, subject);
+        share.putExtra(Intent.EXTRA_TEXT, body);
+        startActivity(Intent.createChooser(share, subject));
+    }
+
+    private void showPinEditor() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(8), dp(8), dp(8), 0);
+        panel.addView(text("A 4–8 digit PIN is hashed on this device with SHA-256. It is never sent to a provider. App lock must also be enabled.", 12, secondaryText), wrap());
+        EditText pin = input("New PIN", true);
+        pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        EditText confirm = input("Confirm PIN", true);
+        confirm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        panel.addView(pin, marginParams(0, 10, 0, 6));
+        panel.addView(confirm, wrapParams());
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle(preferences.hasPin() ? "Change PIN" : "Set PIN")
+                .setView(panel)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save PIN", (d, w) -> {
+                    String a = pin.getText().toString();
+                    String b = confirm.getText().toString();
+                    if (!a.equals(b)) {
+                        toast("PINs do not match");
+                        return;
+                    }
+                    if (!preferences.setPin(a)) {
+                        toast("Use 4–8 digits");
+                        return;
+                    }
+                    preferences.setAppLockEnabled(true);
+                    toast("PIN saved · app lock on");
+                });
+        if (preferences.hasPin()) {
+            builder.setNeutralButton("Remove PIN", (d, w) -> {
+                preferences.clearPin();
+                toast("PIN removed");
+            });
+        }
+        builder.show();
     }
 
     private int dp(float value) {

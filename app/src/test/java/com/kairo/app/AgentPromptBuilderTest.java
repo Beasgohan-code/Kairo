@@ -22,4 +22,15 @@ public class AgentPromptBuilderTest {
         assertTrue(prompt.contains("deep planning"));
         assertTrue(prompt.contains("I prefer concise diffs"));
     }
+
+    @Test
+    public void projectInstructionsAreAlwaysAppended() {
+        String prompt = AgentPromptBuilder.systemPrompt(
+                "chat", java.util.Collections.emptyList(), "auto", "concise", "fast", "",
+                "Always use Kotlin.");
+        assertTrue(prompt.contains("Pinned project / system instructions"));
+        assertTrue(prompt.contains("Always use Kotlin."));
+        assertTrue(prompt.contains("fast pass"));
+        assertTrue(prompt.contains("be concise"));
+    }
 }

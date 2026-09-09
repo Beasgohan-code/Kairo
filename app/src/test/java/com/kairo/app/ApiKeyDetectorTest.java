@@ -31,4 +31,18 @@ public class ApiKeyDetectorTest {
         assertEquals("I prefer short answers", MemoryStore.candidateFromText(
                 "I prefer short answers."));
     }
+
+    @Test
+    public void detectsNewProvidersAndGenericOpenAiLast() {
+        assertEquals("xai", ApiKeyDetector.detect("xai-abcdefghijklmnopqrstuvwxyz123456").getProviderId());
+        assertEquals("huggingface", ApiKeyDetector.detect("hf_abcdefghijklmnopqrstuvwxyz123456").getProviderId());
+        assertEquals("perplexity", ApiKeyDetector.detect("pplx-abcdefghijklmnopqrstuvwxyz123456").getProviderId());
+        assertEquals("google", ApiKeyDetector.detect("AIzaSyDummyGoogleAiStudioKey1234567").getProviderId());
+        String genericOpenAi = "sk-" + "abcdefghijklmnopqrstuvwxyz1234567890ABCD";
+        ApiKeyDetector.DetectedCredential openai = ApiKeyDetector.detect(genericOpenAi);
+        assertEquals("openai", openai.getProviderId());
+        assertTrue(ApiKeyDetector.redact("secret " + genericOpenAi)
+                .contains("[OpenAI key redacted]"));
+        assertNull(ApiKeyDetector.detect("deadbeefcafebabe0123456789abcdef"));
+    }
 }

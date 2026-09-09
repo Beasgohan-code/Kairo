@@ -99,7 +99,7 @@ public final class LinearClient {
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("Authorization", token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.3");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(body.toString().getBytes(StandardCharsets.UTF_8));
             }

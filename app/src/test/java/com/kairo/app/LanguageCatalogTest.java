@@ -43,6 +43,7 @@ public class LanguageCatalogTest {
         assertNotNull(LanguageCatalog.find("unknown"));
         assertFalse(LanguageCatalog.starterTemplate("python").isEmpty());
         assertTrue(LanguageCatalog.starterTemplate("java").contains("Hello from Kairo"));
+        assertTrue(LanguageCatalog.starterTemplate("json").contains("0.14.0"));
     }
 
     @Test

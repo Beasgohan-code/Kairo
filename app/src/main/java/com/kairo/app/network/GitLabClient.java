@@ -32,7 +32,7 @@ public final class GitLabClient {
                         .openConnection();
                 c.setRequestMethod("GET");
                 c.setRequestProperty("PRIVATE-TOKEN", token.trim());
-                c.setRequestProperty("User-Agent", "Kairo-Android/0.10");
+                c.setRequestProperty("User-Agent", "Kairo-Android/0.14");
                 c.setConnectTimeout(15_000);
                 c.setReadTimeout(30_000);
                 int status = c.getResponseCode();

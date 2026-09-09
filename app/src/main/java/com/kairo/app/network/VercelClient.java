@@ -168,7 +168,7 @@ public final class VercelClient {
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");

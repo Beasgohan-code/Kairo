@@ -38,7 +38,7 @@ public final class BitbucketClient {
                         .openConnection();
                 c.setRequestMethod("GET");
                 c.setRequestProperty("Authorization", "Basic " + auth);
-                c.setRequestProperty("User-Agent", "Kairo-Android/0.10");
+                c.setRequestProperty("User-Agent", "Kairo-Android/0.14");
                 c.setConnectTimeout(15_000);
                 c.setReadTimeout(30_000);
                 int status = c.getResponseCode();

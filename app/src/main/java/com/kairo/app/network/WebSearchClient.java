@@ -60,7 +60,7 @@ public final class WebSearchClient {
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("X-Subscription-Token", key);
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             int status = connection.getResponseCode();
             InputStream stream = status >= 200 && status < 300
                     ? connection.getInputStream() : connection.getErrorStream();
@@ -103,7 +103,7 @@ public final class WebSearchClient {
             connection.setConnectTimeout(15_000);
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.11");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             int status = connection.getResponseCode();
             InputStream stream = status >= 200 && status < 300
                     ? connection.getInputStream() : connection.getErrorStream();

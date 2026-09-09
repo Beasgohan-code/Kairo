@@ -170,7 +170,7 @@ public final class GitHubClient {
             connection.setRequestProperty("Accept", "application/vnd.github+json");
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
             connection.setRequestProperty("Authorization", "Bearer " + token.trim());
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.1");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             if (body != null) {
                 connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");

@@ -26,7 +26,9 @@ public final class ApiKeyDetector {
             new Rule("google", "Google AI", Pattern.compile("\\b(AIza[0-9A-Za-z_-]{20,})\\b")),
             new Rule("linear", "Linear", Pattern.compile("\\b(lin_api_[A-Za-z0-9_-]{20,})\\b")),
             new Rule("slack", "Slack", Pattern.compile("\\b(xox[baprs]-[A-Za-z0-9-]{20,})\\b")),
-            new Rule("notion", "Notion", Pattern.compile("\\b(secret_[A-Za-z0-9]{20,})\\b"))
+            new Rule("notion", "Notion", Pattern.compile("\\b(secret_[A-Za-z0-9]{20,})\\b")),
+            // Last: generic OpenAI-style keys. Keep after sk-ant- / sk-or- / sk-proj- rules.
+            new Rule("openai", "OpenAI", Pattern.compile("\\b(sk-[A-Za-z0-9_-]{32,})\\b"))
     };
 
     private ApiKeyDetector() {

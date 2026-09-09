@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Kairo</string>
-    <string name="app_tagline">GPT-6 Astra · voice · files · sandbox</string>
-    <string name="app_description">Premium private AI workspace with streaming chat, Arena, polyglot files, camera, voice assistant, and Ubuntu-style sandbox terminal.</string>
+    <string name="app_tagline">GPT-6 Astra · slash commands · Grok · Gemini</string>
+    <string name="app_description">Premium private AI workspace with streaming chat, Arena, slash commands, polyglot files, camera, voice assistant, PIN lock, and Ubuntu-style sandbox terminal.</string>
 </resources>
