@@ -81,7 +81,7 @@ public final class ImageGenerationClient {
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setRequestProperty("Accept", "application/json");
                     connection.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
-                    connection.setRequestProperty("User-Agent", "Kairo-Android/0.9");
+                    connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
                     byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
                     connection.setFixedLengthStreamingMode(payload.length);
                     try (OutputStream os = connection.getOutputStream()) {
@@ -143,7 +143,7 @@ public final class ImageGenerationClient {
             c = (HttpURLConnection) new URL(imageUrl).openConnection();
             c.setConnectTimeout(20_000);
             c.setReadTimeout(60_000);
-            c.setRequestProperty("User-Agent", "Kairo-Android/0.9");
+            c.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             int status = c.getResponseCode();
             if (status < 200 || status >= 300) {
                 throw new IllegalStateException("Image download HTTP " + status);

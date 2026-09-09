@@ -22,6 +22,8 @@ public class CliCommandPolicyTest {
         assertFalse(CliCommandPolicy.isAllowed("cat secret.txt"));
         assertFalse(CliCommandPolicy.isAllowed("$(whoami)"));
         assertFalse(CliCommandPolicy.isAllowed("apt install curl"));
-        assertTrue(CliCommandPolicy.helpText().contains("allow"));
+        String help = CliCommandPolicy.helpText();
+        assertTrue(help.toLowerCase().contains("allow"));
+        assertTrue(help.contains("allow-list"));
     }
 }

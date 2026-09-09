@@ -107,7 +107,7 @@ public final class NotionClient {
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("Authorization", "Bearer " + token.trim());
             connection.setRequestProperty("Notion-Version", NOTION_VERSION);
-            connection.setRequestProperty("User-Agent", "Kairo-Android/0.2");
+            connection.setRequestProperty("User-Agent", "Kairo-Android/0.14");
             if (body != null) {
                 connection.setDoOutput(true);
                 try (OutputStream output = connection.getOutputStream()) {

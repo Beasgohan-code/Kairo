@@ -40,4 +40,14 @@ public class ModelCatalogTest {
         }
         assertTrue(hasExperientialFree);
     }
+
+    @Test
+    public void includesXaiGeminiHuggingFaceAndPerplexity() {
+        assertNotNull(ModelCatalog.find("xai", "grok-3"));
+        assertNotNull(ModelCatalog.find("google", "gemini-2.0-flash"));
+        assertNotNull(ModelCatalog.find("huggingface", "Qwen/Qwen2.5-7B-Instruct"));
+        assertNotNull(ModelCatalog.find("perplexity", "sonar"));
+        assertTrue(ModelCatalog.forProvider("xai").size() >= 2);
+        assertTrue(ModelCatalog.forProvider("google").size() >= 2);
+    }
 }

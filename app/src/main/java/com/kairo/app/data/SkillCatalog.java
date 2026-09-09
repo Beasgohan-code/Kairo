@@ -46,13 +46,25 @@ public final class SkillCatalog {
     }
 
     public static String instructions(List<String> enabledIds) {
+        return instructions(enabledIds, Collections.emptyList());
+    }
+
+    public static String instructions(List<String> enabledIds, List<SkillDefinition> extra) {
         if (enabledIds == null || enabledIds.isEmpty()) return "";
         StringBuilder result = new StringBuilder();
         for (String id : enabledIds) {
             SkillDefinition skill = find(id);
+            if (skill == null && extra != null) {
+                for (SkillDefinition candidate : extra) {
+                    if (candidate != null && id.equals(candidate.getId())) {
+                        skill = candidate;
+                        break;
+                    }
+                }
+            }
             if (skill == null) continue;
             if (result.length() > 0) result.append("\n");
-            result.append("- ").append(skill.getInstruction());
+            result.append("- ").append(skill.getName()).append(": ").append(skill.getInstruction());
         }
         return result.toString();
     }

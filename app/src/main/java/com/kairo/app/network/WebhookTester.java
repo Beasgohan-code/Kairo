@@ -51,7 +51,7 @@ public final class WebhookTester {
                 c.setReadTimeout(30_000);
                 c.setDoOutput(true);
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                c.setRequestProperty("User-Agent", "Kairo-Android-WebhookTester/1.0");
+                c.setRequestProperty("User-Agent", "Kairo-Android-WebhookTester/0.14");
                 byte[] payload = (jsonBody == null ? "{}" : jsonBody).getBytes(StandardCharsets.UTF_8);
                 c.setFixedLengthStreamingMode(payload.length);
                 try (OutputStream os = c.getOutputStream()) {

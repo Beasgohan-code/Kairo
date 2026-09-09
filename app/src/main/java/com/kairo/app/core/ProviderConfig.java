@@ -27,6 +27,10 @@ public final class ProviderConfig {
         if ("discord".equals(providerId)) return "Discord webhook";
         if ("linear".equals(providerId)) return "Linear";
         if ("custom".equals(providerId)) return "OpenAI-compatible";
+        if ("google".equals(providerId)) return "Google Gemini";
+        if ("xai".equals(providerId)) return "xAI";
+        if ("huggingface".equals(providerId)) return "Hugging Face";
+        if ("perplexity".equals(providerId)) return "Perplexity";
         return providerId;
     }
 
@@ -47,6 +51,10 @@ public final class ProviderConfig {
         if ("supabase".equals(providerId)) return "sb_publishable_… or scoped key";
         if ("discord".equals(providerId)) return "https://discord.com/api/webhooks/…";
         if ("linear".equals(providerId)) return "Linear API key";
+        if ("google".equals(providerId)) return "Google AI Studio key (AIza…)";
+        if ("xai".equals(providerId)) return "xai-…";
+        if ("huggingface".equals(providerId)) return "hf_…";
+        if ("perplexity".equals(providerId)) return "pplx-…";
         return "Paste provider key";
     }
 
@@ -60,8 +68,12 @@ public final class ProviderConfig {
         if ("mistral".equals(providerId)) return "https://api.mistral.ai/v1";
         if ("openai".equals(providerId)) return "https://api.openai.com/v1";
         if ("anthropic".equals(providerId)) return "https://api.anthropic.com";
-        if ("ollama".equals(providerId)) return preferences.getOllamaBaseUrl();
-        if ("custom".equals(providerId)) return preferences.getCustomBaseUrl();
+        if ("google".equals(providerId)) return "https://generativelanguage.googleapis.com/v1beta/openai";
+        if ("xai".equals(providerId)) return "https://api.x.ai/v1";
+        if ("huggingface".equals(providerId)) return "https://router.huggingface.co/v1";
+        if ("perplexity".equals(providerId)) return "https://api.perplexity.ai";
+        if ("ollama".equals(providerId)) return preferences == null ? "" : preferences.getOllamaBaseUrl();
+        if ("custom".equals(providerId)) return preferences == null ? "" : preferences.getCustomBaseUrl();
         return "";
     }
 
@@ -89,6 +101,10 @@ public final class ProviderConfig {
         if ("openai".equals(providerId)) return "AI";
         if ("ollama".equals(providerId)) return "🦙";
         if ("custom".equals(providerId)) return "⚡";
+        if ("google".equals(providerId)) return "G";
+        if ("xai".equals(providerId)) return "X";
+        if ("huggingface".equals(providerId)) return "H";
+        if ("perplexity".equals(providerId)) return "P";
         return "·";
     }
 }

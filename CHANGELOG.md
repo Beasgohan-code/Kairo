@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-09
+
+### Fixed
+- Mode picker ids now match labels (Dev Loop is selectable instead of shifting every later mode)
+- Chat always sends a system prompt, so Fast/Deep, skills, language, memories, and **project instructions** reach the model
+- Markdown renderer strips `**`, `*`, `` ` ``, and `~~` markers instead of leaving punctuation in answers
+- Pinned conversations sort to the top of the sidebar
+- Camera capture requests `CAMERA` permission before launching the intent
+- Voice routing no longer hijacks ordinary dictation that happens to contain “files”
+- Markdown and PDF exports use `ApiKeyDetector.redact` instead of two regexes
+- Workspace health shows a token estimate alongside message counts
+- Restored missing `accentSoft` / `premiumComposerBg` drawables so debug Java compilation succeeds
+
+### Added
+- `/skill-creator <brief>` compiles a named, reviewable custom skill (id, purpose, procedure, output shape, quality bar, guardrails). Role names are inferred (`Answer like a staff Android engineer` → **Staff Android Engineer**). Skills only shape wording; credentials are rejected; nothing is saved until you confirm; Copy card exports Markdown
+- Slash commands (`/help`, `/code`, `/review`, `/deep`, `/file`, `/summarize`, `/skill-creator`, `/arena`, `/search`, …) parsed on-device
+- Find in chat, edit last message, duplicate conversation, speak last answer (on-device TTS)
+- Copy last fenced code block from an assistant answer
+- Optional 4–8 digit PIN (SHA-256 + salt) for app lock
+- Composer draft restored after app switches
+- Providers: **xAI Grok**, **Google Gemini** (OpenAI-compatible), **Hugging Face** router, **Perplexity Sonar**
+- In-app What’s new + feature-ideas list
+- Token estimator, unified diff helper, JSON pretty-printer, conversation search
+
+### Security
+- PIN is hashed on-device and never sent to a provider
+- Generic OpenAI `sk-…` detection is last so `sk-ant-` / `sk-or-` still match their providers
+- User-Agent is `Kairo-Android/0.14`
+
 ## [0.13.0] - 2026-09-09
 
 ### AI menus & streaming

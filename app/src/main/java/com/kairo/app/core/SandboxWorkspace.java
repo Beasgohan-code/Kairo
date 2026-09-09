@@ -118,7 +118,7 @@ public final class SandboxWorkspace {
         StringBuilder sb = new StringBuilder();
         sb.append("Phone private storage (app-only)\n");
         sb.append(storageLocation()).append('\n');
-        sb.append("Folders: src/  tests/  out/  notes/\n");
+        sb.append("Folders: src/  tests/  out/  notes/  templates/  images/\n");
         sb.append("Limits: ").append(MAX_FILES).append(" files · ")
                 .append(MAX_FILE_BYTES).append(" bytes/file\n");
         sb.append("Not a full Ubuntu VM — bounded workspace only.\n\n");

@@ -115,7 +115,7 @@ public final class CliCommandPolicy {
         for (String example : EXAMPLES) {
             sb.append("  · ").append(example).append('\n');
         }
-        sb.append("\nBlocked: pipes, redirects, chaining, substitution, root, package installs, arbitrary paths.");
+        sb.append("\nThis is a tight allow-list. Blocked: pipes, redirects, chaining, substitution, root, package installs, arbitrary paths.");
         return sb.toString().trim();
     }
 }

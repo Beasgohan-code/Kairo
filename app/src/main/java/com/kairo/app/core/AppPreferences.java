@@ -37,6 +37,10 @@ public final class AppPreferences {
     private static final String KEY_ONBOARDING_DONE = "onboarding_done";
     private static final String KEY_LARGE_TEXT = "accessibility_large_text";
     private static final String KEY_PINNED_SESSIONS = "pinned_session_ids";
+    private static final String KEY_COMPOSER_DRAFT = "composer_draft";
+    private static final String KEY_PIN_HASH = "security_pin_hash";
+    private static final String KEY_PIN_SALT = "security_pin_salt";
+    private static final String KEY_WHATS_NEW_SEEN = "whats_new_seen_version";
     private static final String SKILL_SEPARATOR = "\u001f";
 
     private final SharedPreferences preferences;
@@ -151,7 +155,7 @@ public final class AppPreferences {
         if (preferences.contains(KEY_ENABLED_SKILLS)) {
             if (stored != null && !stored.isEmpty()) {
                 for (String value : stored.split(SKILL_SEPARATOR)) {
-                    if (SkillCatalog.find(value) != null) requested.add(value);
+                    if (isKnownSkillId(value)) requested.add(value);
                 }
             }
         } else {
@@ -161,6 +165,9 @@ public final class AppPreferences {
         for (com.kairo.app.data.SkillDefinition skill : SkillCatalog.all()) {
             if (requested.contains(skill.getId())) result.add(skill.getId());
         }
+        for (String id : requested) {
+            if (SkillCreator.isCustomId(id) && !result.contains(id)) result.add(id);
+        }
         return result;
     }
 
@@ -168,7 +175,7 @@ public final class AppPreferences {
         Set<String> requested = new LinkedHashSet<>();
         if (skillIds != null) {
             for (String value : skillIds) {
-                if (SkillCatalog.find(value) != null) requested.add(value);
+                if (isKnownSkillId(value)) requested.add(value);
             }
         }
         StringBuilder serialized = new StringBuilder();
@@ -325,6 +332,56 @@ public final class AppPreferences {
         if (set.contains(sessionId)) set.remove(sessionId);
         else set.add(sessionId);
         setPinnedSessionIds(set);
+    }
+
+    public String getComposerDraft() {
+        return preferences.getString(KEY_COMPOSER_DRAFT, "");
+    }
+
+    public void setComposerDraft(String draft) {
+        String value = draft == null ? "" : draft;
+        if (value.length() > 32_000) value = value.substring(0, 32_000);
+        preferences.edit().putString(KEY_COMPOSER_DRAFT, value).apply();
+    }
+
+    public boolean hasPin() {
+        String hash = preferences.getString(KEY_PIN_HASH, "");
+        String salt = preferences.getString(KEY_PIN_SALT, "");
+        return hash != null && !hash.isEmpty() && salt != null && !salt.isEmpty();
+    }
+
+    public boolean setPin(String pin) {
+        if (!PinHasher.isValidPin(pin)) return false;
+        String salt = PinHasher.newSalt();
+        String hash = PinHasher.hash(pin, salt);
+        if (hash.isEmpty()) return false;
+        preferences.edit()
+                .putString(KEY_PIN_SALT, salt)
+                .putString(KEY_PIN_HASH, hash)
+                .apply();
+        return true;
+    }
+
+    public boolean verifyPin(String pin) {
+        return PinHasher.verify(pin,
+                preferences.getString(KEY_PIN_SALT, ""),
+                preferences.getString(KEY_PIN_HASH, ""));
+    }
+
+    public void clearPin() {
+        preferences.edit().remove(KEY_PIN_HASH).remove(KEY_PIN_SALT).apply();
+    }
+
+    public String getWhatsNewSeen() {
+        return preferences.getString(KEY_WHATS_NEW_SEEN, "");
+    }
+
+    public void setWhatsNewSeen(String version) {
+        preferences.edit().putString(KEY_WHATS_NEW_SEEN, version == null ? "" : version).apply();
+    }
+
+    private boolean isKnownSkillId(String id) {
+        return SkillCatalog.find(id) != null || SkillCreator.isCustomId(id);
     }
 
     private String normalizeUrl(String value) {

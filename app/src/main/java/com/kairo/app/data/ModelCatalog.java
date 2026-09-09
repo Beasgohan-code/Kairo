@@ -200,7 +200,44 @@ public final class ModelCatalog {
             model("qwen2.5:7b", "Qwen 2.5 7B (local)", "ollama",
                     "Private local chat model", true, true, "32K", "Local; no provider key"),
             model("deepseek-r1:7b", "DeepSeek R1 7B (local)", "ollama",
-                    "Local reasoning model", true, true, "128K", "Local; no provider key")
+                    "Local reasoning model", true, true, "128K", "Local; no provider key"),
+
+            // xAI Grok via the official OpenAI-compatible API.
+            model("grok-3", "Grok 3", "xai",
+                    "xAI flagship reasoning and coding model", false, false, "131K",
+                    "Provider billing applies"),
+            model("grok-3-mini", "Grok 3 Mini", "xai",
+                    "Faster Grok 3 variant for everyday work", false, false, "131K",
+                    "Provider billing applies"),
+            candidateProvider("grok-4", "Grok 4", "xai",
+                    "Next-gen Grok candidate — confirm with live refresh", "256K"),
+
+            // Google Gemini via the OpenAI-compatible Generative Language API.
+            model("gemini-2.0-flash", "Gemini 2.0 Flash", "google",
+                    "Fast multimodal Gemini via the OpenAI-compatible endpoint", false, false, "1M",
+                    "Provider billing / free tier may apply"),
+            model("gemini-2.5-flash", "Gemini 2.5 Flash", "google",
+                    "Current fast Gemini Flash route", false, false, "1M",
+                    "Provider billing / free tier may apply"),
+            candidateProvider("gemini-2.5-pro", "Gemini 2.5 Pro", "google",
+                    "Higher-capability Gemini Pro candidate", "1M"),
+
+            // Hugging Face Inference / router (OpenAI-compatible).
+            model("Qwen/Qwen2.5-7B-Instruct", "Qwen 2.5 7B (HF)", "huggingface",
+                    "Open instruction model through Hugging Face", true, false, "128K",
+                    "HF token · rate limits apply"),
+            candidateProvider("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B (HF)", "huggingface",
+                    "Large Llama route via Hugging Face when your account exposes it", "128K"),
+
+            // Perplexity Sonar (OpenAI-compatible chat completions).
+            model("sonar", "Sonar", "perplexity",
+                    "Grounded web-aware chat via Perplexity", false, false, "128K",
+                    "Provider billing applies"),
+            model("sonar-pro", "Sonar Pro", "perplexity",
+                    "Higher-capacity grounded Perplexity route", false, false, "128K",
+                    "Provider billing applies"),
+            candidateProvider("sonar-reasoning", "Sonar Reasoning", "perplexity",
+                    "Reasoning-focused Perplexity candidate", "128K")
     ));
 
     private ModelCatalog() {

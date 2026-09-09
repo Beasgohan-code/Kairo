@@ -19,8 +19,19 @@ public final class UsageTracker {
                 .apply();
     }
 
+    public void recordTokens(int tokens) {
+        if (tokens <= 0) return;
+        preferences.edit()
+                .putLong("tokens", preferences.getLong("tokens", 0L) + tokens)
+                .apply();
+    }
+
     public int messageCount() {
         return preferences.getInt("messages", 0);
+    }
+
+    public long tokenCount() {
+        return preferences.getLong("tokens", 0L);
     }
 
     public long lastMessageAt() {

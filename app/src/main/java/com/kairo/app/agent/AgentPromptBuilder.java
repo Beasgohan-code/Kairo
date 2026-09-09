@@ -3,6 +3,7 @@ package com.kairo.app.agent;
 import com.kairo.app.data.LanguageCatalog;
 import com.kairo.app.data.LanguagePreset;
 import com.kairo.app.data.SkillCatalog;
+import com.kairo.app.data.SkillDefinition;
 
 import java.util.Collections;
 import java.util.List;
@@ -33,8 +34,22 @@ public final class AgentPromptBuilder {
 
     public static String systemPrompt(String agentId, List<String> enabledSkills, String languagePresetId,
                                       String responseStyle, String reasoningMode, String memoryContext) {
+        return systemPrompt(agentId, enabledSkills, languagePresetId, responseStyle, reasoningMode,
+                memoryContext, "", Collections.emptyList());
+    }
+
+    public static String systemPrompt(String agentId, List<String> enabledSkills, String languagePresetId,
+                                      String responseStyle, String reasoningMode, String memoryContext,
+                                      String projectInstructions) {
+        return systemPrompt(agentId, enabledSkills, languagePresetId, responseStyle, reasoningMode,
+                memoryContext, projectInstructions, Collections.emptyList());
+    }
+
+    public static String systemPrompt(String agentId, List<String> enabledSkills, String languagePresetId,
+                                      String responseStyle, String reasoningMode, String memoryContext,
+                                      String projectInstructions, List<SkillDefinition> extraSkills) {
         String base = basePrompt(agentId);
-        String instructions = SkillCatalog.instructions(enabledSkills);
+        String instructions = SkillCatalog.instructions(enabledSkills, extraSkills);
         LanguagePreset preset = LanguageCatalog.find(languagePresetId);
         StringBuilder prompt = new StringBuilder(base);
         String style = responseStyle == null ? "balanced" : responseStyle.trim().toLowerCase(java.util.Locale.US);
@@ -63,6 +78,10 @@ public final class AgentPromptBuilder {
         }
         if (memoryContext != null && !memoryContext.trim().isEmpty()) {
             prompt.append("\n\n").append(memoryContext.trim());
+        }
+        if (projectInstructions != null && !projectInstructions.trim().isEmpty()) {
+            prompt.append("\n\nPinned project / system instructions from the user:\n")
+                    .append(projectInstructions.trim());
         }
         return prompt.toString();
     }
