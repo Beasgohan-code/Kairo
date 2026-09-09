@@ -47,7 +47,7 @@ public final class AgentPromptBuilder {
         }
         String reasoning = reasoningMode == null ? "balanced" : reasoningMode.trim().toLowerCase(java.util.Locale.US);
         if ("deep".equals(reasoning)) {
-            prompt.append("\n\nReasoning mode: deep planning (GPT-6 Astra style). Work through assumptions, edge cases, architecture, and verification internally; present a concise rationale, trade-offs, and checks — not hidden chain-of-thought dumps.");
+            prompt.append("\n\nReasoning mode: deep planning. Work through assumptions, edge cases, and verification internally; present a concise rationale and checks, not hidden chain-of-thought.");
         } else if ("fast".equals(reasoning)) {
             prompt.append("\n\nReasoning mode: fast pass. Lead with the safest useful answer and keep optional detail short.");
         } else {
@@ -70,7 +70,7 @@ public final class AgentPromptBuilder {
     private static String basePrompt(String agentId) {
         if ("code".equals(agentId)) {
             return "You are Kairo Code Agent. Be precise and practical. Start with a short plan, "
-                    + "state assumptions, and provide patch-ready guidance for JavaScript, TypeScript, Kotlin, Java, C++, C, Assembly, CSS, Linux shell, or the selected language. For native code, note memory safety and realistic build steps. Never claim "
+                    + "state assumptions, and provide patch-ready guidance for JavaScript, TypeScript, Kotlin, Java, Linux shell, or the selected language. Never claim "
                     + "you changed files unless a tool result confirms it.";
         }
         if ("devloop".equals(agentId)) {

@@ -5,50 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] - 2026-09-09
-
-### AI menus & streaming
-- Tools menu: GPT-6 Astra deep think, Groq fast, Claude/Anthropic, Arena dual-stream, AI action prompts
-- Deep reasoning labeled GPT-6 Astra style (plan + verify, no hidden CoT dump)
-- Live streaming composer remains the default chat path
-
-### Files & images
-- Add-files menu: attach text, create artifact, templates, zip sandbox, browser
-- Quick templates: py, ts, js, java, kt, cpp, c, asm, css, html, xml, md, txt, json, yml, sql, go, rs, swift, dart, zip
-- Image menu: gallery, camera capture, Image studio generation
-- Camera permission + thumbnail attach into chat
-
-### Voice assistant
-- Voice commands: new chat, settings, models, arena, sandbox, artifacts, camera, theme, fast/deep/balanced, use Astra/Groq, dictate+optional auto-send
-- Continuous voice toggle in Settings
-
-### Theme
-- Dark / Light / **System** colour mode (cycles from composer pill + Settings)
-
-### Sandbox terminal
-- Ubuntu-style allow-list terminal (help, sandbox-status, versions, /proc probes, git, ls…)
-- Quick command chips + templates/images folders
-- Honest: not a full Ubuntu VM
-
-## [0.12.0] - 2026-09-09
-
-### Premium UI
-- Sidebar home with New Chat, search, session list, and profile card
-- Greeting home with Code / Research / Think / Create tiles + suggestion chips
-- Floating composer, purple send, Fast/Balanced/Deep pills, cleaner disclaimer
-- Select Model sheet with Kairo Modes + branded provider rows
-- Kairo Arena branding, dual-panel comparison polish
-- Settings AI/Models panel (default mode, model, temperature summary)
-- Deeper ink palette, violet accents, solid purple user bubbles
-
-### Models
-- Experiential Labs provider (`api.experientiallabs.ai/v1`) + GPT-6 Astra default
-- Astra live refresh, Astra/EXPLABS badges, promo free rows
-
-### Polyglot
-- Language presets: JS, TS, Kotlin, Java, C++, C, Assembly, CSS (+ shell/Python/HTML/JSON)
-- Best-effort C/C++ compile check; Assembly review-only
-
 ## [0.11.0] - 2026-09-04
 
 ### High value

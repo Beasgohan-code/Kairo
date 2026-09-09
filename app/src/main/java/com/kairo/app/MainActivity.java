@@ -197,7 +197,6 @@ public class MainActivity extends Activity {
     private static final int VOICE_REQUEST = 7102;
     private static final int VOICE_PERMISSION_REQUEST = 7103;
     private static final int EXPORT_ARTIFACT_REQUEST = 7104;
-    private static final int CAMERA_CAPTURE_REQUEST = 7106;
 
     // Theme-aware colors (Claude / Groq inspired)
     private int background;
@@ -267,7 +266,7 @@ public class MainActivity extends Activity {
         window.setStatusBarColor(background);
         window.setNavigationBarColor(background);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int flags = preferences.isLightTheme(this)
+            int flags = preferences.isLightTheme()
                     ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
                     : 0;
             window.getDecorView().setSystemUiVisibility(flags);
@@ -335,17 +334,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == PICK_TEXT_REQUEST) attachTextFile(data.getData());
-        else if (requestCode == CAMERA_CAPTURE_REQUEST) {
-            // Camera apps often return a thumbnail Bitmap extra
-            android.os.Bundle extras = data.getExtras();
-            if (extras != null && extras.get("data") instanceof Bitmap) {
-                attachCameraBitmap((Bitmap) extras.get("data"));
-            } else if (data.getData() != null) {
-                attachImageFile(data.getData());
-            } else {
-                toast("No camera image returned");
-            }
-        } else if (requestCode == PICK_IMAGE_REQUEST) {
+        else if (requestCode == PICK_IMAGE_REQUEST) {
             if (data.getClipData() != null) {
                 int count = Math.min(data.getClipData().getItemCount(), 4);
                 for (int index = 0; index < count; index++) {
@@ -358,8 +347,10 @@ public class MainActivity extends Activity {
         } else if (requestCode == EXPORT_ARTIFACT_REQUEST) writeExport(data.getData());
         else if (requestCode == VOICE_REQUEST) {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if (results != null && !results.isEmpty()) {
-                handleVoiceCommand(results.get(0));
+            if (results != null && !results.isEmpty() && composer != null) {
+                String existing = composer.getText().toString();
+                composer.setText(existing + (existing.isEmpty() ? "" : " ") + results.get(0));
+                composer.setSelection(composer.length());
             }
         }
     }
@@ -434,201 +425,157 @@ public class MainActivity extends Activity {
 
         LinearLayout mainColumn = new LinearLayout(this);
         mainColumn.setOrientation(LinearLayout.VERTICAL);
-        mainColumn.setPadding(dp(14), dp(8), dp(14), 0);
+        mainColumn.setPadding(dp(18), dp(10), dp(18), 0);
         root.addView(mainColumn, new FrameLayout.LayoutParams(-1, -1));
 
-        // Premium top bar: brand · model chip · search/actions
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(0, dp(2), 0, dp(10));
-        mainColumn.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(58)));
+        toolbar.setPadding(0, dp(4), 0, dp(10));
+        mainColumn.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(66)));
 
-        TextView menu = iconButton("☰", "Open sidebar", secondaryText);
+        TextView menu = iconButton("☰", "Open conversation history", secondaryText);
         menu.setOnClickListener(view -> toggleDrawer());
         toolbar.addView(menu, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        LinearLayout brand = new LinearLayout(this);
-        brand.setGravity(Gravity.CENTER_VERTICAL);
-        brand.setPadding(dp(4), 0, dp(8), 0);
-        TextView mark = text("✦", 14, Color.WHITE);
+        TextView mark = text("K", 18, background);
         mark.setGravity(Gravity.CENTER);
+        mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         mark.setBackground(circle(lavender));
-        brand.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(30)));
-        TextView brandName = text("KAIRO", 16, primaryText);
+        toolbar.addView(mark, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+        brand.setPadding(dp(10), 0, 0, 0);
+        TextView brandName = text("Kairo", 18, primaryText);
         brandName.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        brandName.setLetterSpacing(0.08f);
-        LinearLayout.LayoutParams bnLp = new LinearLayout.LayoutParams(-2, -2);
-        bnLp.setMargins(dp(8), 0, 0, 0);
-        brand.addView(brandName, bnLp);
-        toolbar.addView(brand, wrap());
+        TextView tagline = text("AI workspace", 11, mutedText);
+        brand.addView(brandName, wrap());
+        brand.addView(tagline, wrap());
+        toolbar.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
 
-        View spacer = new View(this);
-        toolbar.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
-
-        modelChip = pill(modelTitle(), primaryText, raised);
-        modelChip.setTextSize(11);
-        modelChip.setOnClickListener(view -> showModelPicker());
-        toolbar.addView(modelChip, new LinearLayout.LayoutParams(-2, dp(34)));
-
-        TextView searchBtn = iconButton("⌕", "Search chats", secondaryText);
-        searchBtn.setOnClickListener(view -> {
-            openDrawer();
-            if (drawerSearch != null) {
-                drawerSearch.requestFocus();
-                ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                        .showSoftInput(drawerSearch, InputMethodManager.SHOW_IMPLICIT);
-            }
-        });
-        toolbar.addView(searchBtn, new LinearLayout.LayoutParams(dp(40), dp(40)));
-
+        TextView newChat = iconButton("＋", "New conversation", lavender);
+        newChat.setOnClickListener(view -> startNewChat());
+        toolbar.addView(newChat, new LinearLayout.LayoutParams(dp(44), dp(40)));
         TextView palette = iconButton("⌘", "Command palette", secondaryText);
         palette.setOnClickListener(view -> showCommandPalette());
-        toolbar.addView(palette, new LinearLayout.LayoutParams(dp(40), dp(40)));
-
-        TextView newChat = text("+ New", 12, Color.WHITE);
-        newChat.setGravity(Gravity.CENTER);
-        newChat.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        newChat.setPadding(dp(14), 0, dp(14), 0);
-        newChat.setBackground(rounded(lavender, 12));
-        newChat.setOnClickListener(view -> startNewChat());
-        toolbar.addView(newChat, new LinearLayout.LayoutParams(-2, dp(34)));
+        toolbar.addView(palette, new LinearLayout.LayoutParams(dp(44), dp(40)));
+        TextView settings = iconButton("⚙", "Settings", secondaryText);
+        settings.setOnClickListener(view -> showSettings());
+        toolbar.addView(settings, new LinearLayout.LayoutParams(dp(44), dp(40)));
 
         content = new LinearLayout(this);
         UiEffects.enableLayoutTransitions(content);
         content.setOrientation(LinearLayout.VERTICAL);
         mainColumn.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // Clean bottom nav — icon + label style matching mockup
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(4), dp(6), dp(4), dp(10));
-        nav.setBackground(rounded(surface, 0));
+        nav.setPadding(0, dp(8), 0, dp(8));
         String[] labels = {"Chat", "Agents", "Models", "Files", "Connect", "Settings", "Phone"};
-        String[] icons = {"◎", "⌘", "◈", "▣", "⬡", "⚙", "◉"};
-        navItems.clear();
         for (int index = 0; index < labels.length; index++) {
             final int tab = index;
-            LinearLayout item = new LinearLayout(this);
-            item.setOrientation(LinearLayout.VERTICAL);
+            TextView item = text(labels[index], 12, mutedText);
             item.setGravity(Gravity.CENTER);
-            item.setPadding(dp(2), dp(4), dp(2), dp(4));
-            TextView icon = text(icons[index], 14, mutedText);
-            icon.setGravity(Gravity.CENTER);
-            TextView label = text(labels[index], 9, mutedText);
-            label.setGravity(Gravity.CENTER);
-            label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            item.addView(icon, wrap());
-            item.addView(label, wrap());
+            item.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            item.setPadding(dp(4), dp(9), dp(4), dp(9));
             item.setOnClickListener(view -> showTab(tab));
-            // keep a TextView proxy for setActiveTab coloring
-            TextView proxy = label;
-            navItems.add(proxy);
-            nav.addView(item, new LinearLayout.LayoutParams(0, dp(48), 1));
+            navItems.add(item);
+            nav.addView(item, new LinearLayout.LayoutParams(0, dp(42), 1));
         }
-        mainColumn.addView(nav, new LinearLayout.LayoutParams(-1, dp(62)));
+        mainColumn.addView(nav, new LinearLayout.LayoutParams(-1, dp(66)));
 
         drawerScrim = new View(this);
-        drawerScrim.setBackgroundColor(Color.argb(160, 0, 0, 0));
+        drawerScrim.setBackgroundColor(Color.argb(150, 0, 0, 0));
         drawerScrim.setVisibility(View.GONE);
         drawerScrim.setOnClickListener(view -> closeDrawer());
         root.addView(drawerScrim, new FrameLayout.LayoutParams(-1, -1));
 
         drawer = buildDrawer();
-        FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(dp(300), -1, Gravity.START);
+        FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(dp(304), -1, Gravity.START);
         root.addView(drawer, drawerParams);
-        drawer.setTranslationX(-dp(300));
+        drawer.setTranslationX(-dp(304));
         setContentView(root);
     }
 
     private LinearLayout buildDrawer() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(18), dp(12), dp(12));
-        panel.setBackgroundColor(Color.rgb(10, 12, 18));
-        panel.setElevation(dp(14));
+        panel.setPadding(dp(17), dp(20), dp(14), dp(14));
+        panel.setBackgroundColor(surface);
+        panel.setElevation(dp(10));
 
         LinearLayout drawerBrand = new LinearLayout(this);
         drawerBrand.setGravity(Gravity.CENTER_VERTICAL);
-        TextView mark = text("✦", 14, Color.WHITE);
+        TextView mark = text("K", 16, background);
         mark.setGravity(Gravity.CENTER);
+        mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         mark.setBackground(circle(lavender));
-        drawerBrand.addView(mark, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView title = text("KAIRO", 17, primaryText);
+        drawerBrand.addView(mark, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView title = text("Kairo", 18, primaryText);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setLetterSpacing(0.06f);
         LinearLayout.LayoutParams drawerTitleParams = new LinearLayout.LayoutParams(0, -2, 1);
         drawerTitleParams.setMargins(dp(10), 0, 0, 0);
         drawerBrand.addView(title, drawerTitleParams);
-        TextView close = iconButton("‹", "Close sidebar", secondaryText);
-        close.setTextSize(24);
+        TextView close = iconButton("‹", "Close conversation history", secondaryText);
+        close.setTextSize(25);
         close.setOnClickListener(view -> closeDrawer());
-        drawerBrand.addView(close, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        drawerBrand.addView(close, new LinearLayout.LayoutParams(dp(38), dp(38)));
         panel.addView(drawerBrand, wrapParams());
 
-        TextView newConversation = text("+  New Chat", 14, Color.WHITE);
+        TextView newConversation = text("＋  New conversation", 14, primaryText);
         newConversation.setGravity(Gravity.CENTER_VERTICAL);
         newConversation.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         newConversation.setPadding(dp(14), 0, dp(12), 0);
-        newConversation.setBackground(rounded(lavender, 14));
+        newConversation.setBackground(rounded(Color.rgb(57, 49, 83), 13));
         newConversation.setOnClickListener(view -> startNewChat());
-        LinearLayout.LayoutParams ncLp = new LinearLayout.LayoutParams(-1, dp(44));
-        ncLp.setMargins(0, dp(16), 0, dp(12));
-        panel.addView(newConversation, ncLp);
+        panel.addView(newConversation, marginParams(0, 20, 0, 12));
 
-        drawerSearch = input("Search chats", false);
+        drawerSearch = input("Search conversations", false);
         drawerSearch.setSingleLine(true);
-        panel.addView(drawerSearch, marginParams(0, 0, 0, 14));
+        panel.addView(drawerSearch, marginParams(0, 0, 0, 16));
         drawerSearch.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { refreshDrawerSessions(); }
             @Override public void afterTextChanged(Editable s) { }
         });
 
-        TextView recent = sectionLabel("TODAY");
-        panel.addView(recent, marginParams(2, 0, 0, 6));
+        TextView recent = sectionLabel("RECENT CONVERSATIONS");
+        panel.addView(recent, marginParams(2, 0, 0, 7));
         ScrollView sessionScroll = new ScrollView(this);
         drawerSessions = new LinearLayout(this);
         drawerSessions.setOrientation(LinearLayout.VERTICAL);
         sessionScroll.addView(drawerSessions, new ScrollView.LayoutParams(-1, -2));
         panel.addView(sessionScroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        panel.addView(drawerDivider(), marginParams(0, 10, 0, 6));
-        panel.addView(drawerLink("◈  Models", view -> showModels()), wrapParams());
-        panel.addView(drawerLink("⚔  Arena", view -> showArena()), wrapParams());
-        panel.addView(drawerLink("▣  Artifacts", view -> showArtifacts()), wrapParams());
-        panel.addView(drawerLink("✦  Memories", view -> showMemories()), wrapParams());
+        panel.addView(drawerDivider(), marginParams(0, 12, 0, 8));
         panel.addView(drawerLink("⌘  Agents", view -> showAgents()), wrapParams());
-        panel.addView(drawerLink("✧  Hermes", view -> showHermesWorkflow()), wrapParams());
+        panel.addView(drawerLink("✧  Hermes orchestrator", view -> showHermesWorkflow()), wrapParams());
         panel.addView(drawerLink("↻  Dev Loop", view -> showDevLoop()), wrapParams());
-        panel.addView(drawerLink("⬡  Connectors", view -> showConnectors()), wrapParams());
+        panel.addView(drawerLink("✦  Memories", view -> showMemories()), wrapParams());
+        panel.addView(drawerLink("▥  Skills & language", view -> showSkillsSettings()), wrapParams());
+        panel.addView(drawerLink("◌  Sandbox console", view -> showSandbox()), wrapParams());
+        panel.addView(drawerLink("📂  Sandbox browser", view -> showSandboxBrowser()), wrapParams());
+        panel.addView(drawerLink("⬆  GitHub commit wizard", view -> showGitHubCommitWizard()), wrapParams());
+        panel.addView(drawerLink("📋  Prompt templates", view -> showPromptTemplates()), wrapParams());
+        panel.addView(drawerLink("🌐  Webhook tester", view -> showWebhookTester()), wrapParams());
+        panel.addView(drawerLink("◉  Safe phone", view -> showPhoneControl()), wrapParams());
+        panel.addView(drawerLink("◈  Models", view -> showModels()), wrapParams());
+        panel.addView(drawerLink("▣  Artifacts", view -> showArtifacts()), wrapParams());
+        panel.addView(drawerLink("⌘  Connectors", view -> showConnectors()), wrapParams());
+        panel.addView(drawerLink("▤  Device setup", view -> showDeviceSetup()), wrapParams());
         panel.addView(drawerLink("⌁  Web search", view -> showWebSearch()), wrapParams());
+        panel.addView(drawerLink("⚔  Model arena", view -> showArena()), wrapParams());
         panel.addView(drawerLink("🖼  Image studio", view -> showImageStudio()), wrapParams());
-        panel.addView(drawerLink("◌  Sandbox terminal", view -> showSandbox()), wrapParams());
-        panel.addView(drawerLink("🎙  Voice assistant", view -> startVoiceInput()), wrapParams());
-        panel.addView(drawerLink("📷  Camera", view -> openCameraCapture()), wrapParams());
-                panel.addView(drawerLink("▣  Create file", view -> showQuickCreateFile()), wrapParams());
-        panel.addView(drawerLink("◐  Theme · " + preferences.themeModeLabel(), view -> cycleTheme()), wrapParams());
         panel.addView(drawerLink("⚙  Settings", view -> showSettings()), wrapParams());
-
-        LinearLayout profile = new LinearLayout(this);
-        profile.setGravity(Gravity.CENTER_VERTICAL);
-        profile.setPadding(dp(10), dp(10), dp(10), dp(10));
-        profile.setBackground(rounded(raised, 14));
-        TextView avatar = text("G", 13, Color.WHITE);
-        avatar.setGravity(Gravity.CENTER);
-        avatar.setBackground(circle(lavender));
-        profile.addView(avatar, new LinearLayout.LayoutParams(dp(30), dp(30)));
-        LinearLayout pLabels = new LinearLayout(this);
-        pLabels.setOrientation(LinearLayout.VERTICAL);
-        pLabels.setPadding(dp(10), 0, 0, 0);
-        TextView pName = text(deviceSetup != null ? deviceSetup.getDeviceName() : "Kairo", 13, primaryText);
-        pName.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        pLabels.addView(pName, wrap());
-        pLabels.addView(text("Pro workspace", 10, mutedText), wrap());
-        profile.addView(pLabels, new LinearLayout.LayoutParams(0, -2, 1));
-        profile.setOnClickListener(view -> showDeviceSetup());
-        panel.addView(profile, marginParams(0, 12, 0, 4));
-
+        panel.addView(drawerLink("♿  Larger text", view -> {
+            preferences.setLargeText(!preferences.isLargeText());
+            toast(preferences.isLargeText() ? "Larger text on" : "Larger text off");
+            recreate();
+        }), wrapParams());
+        panel.addView(drawerLink("💾  Backup metadata", view -> showBackupRestore()), wrapParams());
+        TextView footer = text("PRIVATE BY DEFAULT\nKeys stay on this device", 10, mutedText);
+        footer.setLineSpacing(1.1f, 1.0f);
+        panel.addView(footer, marginParams(2, 16, 0, 0));
         refreshDrawerSessions();
         return panel;
     }
@@ -657,17 +604,15 @@ public class MainActivity extends Activity {
         int shown = 0;
         for (ConversationSession session : savedSessions) {
             if (!query.isEmpty() && !session.getTitle().toLowerCase(Locale.US).contains(query)) continue;
-            boolean active = session.getId().equals(activeSessionId);
-            TextView item = text(session.getTitle(), 13, active ? primaryText : secondaryText);
+            TextView item = text(session.getTitle(), 13,
+                    session.getId().equals(activeSessionId) ? primaryText : secondaryText);
             item.setSingleLine(true);
             item.setEllipsize(android.text.TextUtils.TruncateAt.END);
             item.setGravity(Gravity.CENTER_VERTICAL);
-            item.setPadding(dp(12), 0, dp(10), 0);
-            item.setBackground(active ? accentSoft(lavender) : rounded(Color.TRANSPARENT, 12));
+            item.setPadding(dp(12), 0, dp(8), 0);
+            item.setBackground(session.getId().equals(activeSessionId) ? rounded(raised, 10) : null);
             item.setOnClickListener(view -> activateSession(session, true));
-            LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-1, dp(44));
-            ilp.setMargins(0, 0, 0, dp(4));
-            drawerSessions.addView(item, ilp);
+            drawerSessions.addView(item, new LinearLayout.LayoutParams(-1, dp(42)));
             shown++;
             if (shown >= 30) break;
         }
@@ -695,7 +640,7 @@ public class MainActivity extends Activity {
     private void closeDrawer() {
         if (drawer == null || !drawerOpen) return;
         drawerOpen = false;
-        drawer.animate().translationX(-dp(300)).setDuration(180).withEndAction(
+        drawer.animate().translationX(-dp(304)).setDuration(180).withEndAction(
                 () -> drawerScrim.setVisibility(View.GONE)).start();
     }
 
@@ -712,11 +657,8 @@ public class MainActivity extends Activity {
     private void setActiveTab(int tab) {
         for (int index = 0; index < navItems.size(); index++) {
             TextView item = navItems.get(index);
-            boolean on = index == tab;
-            item.setTextColor(on ? lavender : mutedText);
-            // label only — parent icon row stays clean
-            item.setTypeface(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL);
-            item.setBackground(null);
+            item.setTextColor(index == tab ? primaryText : mutedText);
+            item.setBackground(index == tab ? rounded(raised, 14) : null);
         }
     }
 
@@ -736,12 +678,11 @@ public class MainActivity extends Activity {
         chatSessionTitle.setSingleLine(true);
         chatSessionTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         headingWrap.addView(chatSessionTitle, wrap());
-        headingWrap.addView(text("Private · on-device", 11, mutedText), wrap());
+        headingWrap.addView(text("Private conversation · saved locally", 11, secondaryText), wrap());
         header.addView(headingWrap, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView localModelChip = pill(modelTitle(), primaryText, raised);
-        localModelChip.setOnClickListener(view -> showModelPicker());
-        header.addView(localModelChip, new LinearLayout.LayoutParams(-2, dp(34)));
-        if (modelChip != null) modelChip.setText(modelTitle());
+        modelChip = pill(modelTitle(), lavender, raised);
+        modelChip.setOnClickListener(view -> showModelPicker());
+        header.addView(modelChip, new LinearLayout.LayoutParams(-2, dp(38)));
         TextView chatMenu = iconButton("⋯", "Conversation actions", secondaryText);
         chatMenu.setTextSize(23);
         chatMenu.setOnClickListener(view -> showChatMenu());
@@ -767,15 +708,15 @@ public class MainActivity extends Activity {
 
         LinearLayout composerShell = new LinearLayout(this);
         composerShell.setOrientation(LinearLayout.VERTICAL);
-        composerShell.setPadding(dp(12), dp(10), dp(10), dp(10));
-        composerShell.setBackground(premiumComposerBg());
+        composerShell.setPadding(dp(10), dp(8), dp(8), dp(7));
+        composerShell.setBackground(stroked(border, 18));
 
         LinearLayout composeLine = new LinearLayout(this);
         composeLine.setGravity(Gravity.TOP | Gravity.CENTER_VERTICAL);
         composer = new EditText(this);
         composer.setTextColor(primaryText);
         composer.setHintTextColor(mutedText);
-        composer.setHint("Ask Kairo anything…");
+        composer.setHint("Message Kairo…");
         composer.setTextSize(15);
         composer.setGravity(Gravity.TOP | Gravity.START);
         composer.setMinLines(1);
@@ -823,33 +764,30 @@ public class MainActivity extends Activity {
 
         LinearLayout composeActions = new LinearLayout(this);
         composeActions.setGravity(Gravity.CENTER_VERTICAL);
-        TextView attach = compactIcon("＋", "Add files", secondaryText,
-                view -> showAddFilesMenu());
+        TextView attach = compactIcon("＋", "Attach a text file", secondaryText,
+                view -> openTextPicker());
         composeActions.addView(attach, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView image = compactIcon("▧", "Images", lavender,
-                view -> showImageMenu());
+        TextView image = compactIcon("▧", "Attach an image", lavender,
+                view -> openImagePicker());
         composeActions.addView(image, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView camera = compactIcon("📷", "Camera", secondaryText,
-                view -> openCameraCapture());
-        composeActions.addView(camera, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView tools = compactIcon("✦", "Tools & AI menus", lavender,
+        TextView tools = compactIcon("✦", "Choose a tool", lavender,
                 view -> showToolPicker());
         composeActions.addView(tools, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView ai = pill("AI", lavender, preferences.isLightTheme(this) ? soft : Color.rgb(48, 42, 70));
+        TextView ai = pill("AI", lavender, preferences.isLightTheme() ? soft : Color.rgb(48, 42, 70));
         ai.setTextSize(10);
         ai.setContentDescription("AI actions");
         ai.setOnClickListener(view -> showAiFeaturesPicker());
         composeActions.addView(ai, new LinearLayout.LayoutParams(dp(38), dp(32)));
-        modeButton = pill(agentModeLabel(), lavender, preferences.isLightTheme(this) ? soft : Color.rgb(48, 42, 70));
+        modeButton = pill(agentModeLabel(), lavender, preferences.isLightTheme() ? soft : Color.rgb(48, 42, 70));
         modeButton.setTextSize(10);
         modeButton.setOnClickListener(view -> showAgentModePicker());
         composeActions.addView(modeButton, marginWrapParams(4, 0, 0, 0));
         TextView charCount = text("0 / 32k", 10, mutedText);
         composeActions.addView(charCount, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView voice = compactIcon("🎙", "Voice assistant", secondaryText,
+        TextView voice = compactIcon("◉", "Voice input", secondaryText,
                 view -> startVoiceInput());
         composeActions.addView(voice, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        sendButton = text("▶", 16, Color.WHITE);
+        sendButton = text("↑", 21, preferences.isLightTheme() ? Color.WHITE : background);
         sendButton.setGravity(Gravity.CENTER);
         sendButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         sendButton.setBackground(circle(lavender));
@@ -871,10 +809,12 @@ public class MainActivity extends Activity {
             @Override public void afterTextChanged(Editable s) { }
         });
         page.addView(composerShell, marginParams(0, 7, 0, 0));
-        TextView footer = text("Kairo can make mistakes. Check important info.  ·  Keys stay on this device.", 10, mutedText);
+        TextView footer = text("Live response · " + styleLabel(preferences.getResponseStyle()) + " / "
+                + reasoningLabel(preferences.getReasoningMode()) + " reasoning · "
+                + preferences.getMaxOutputTokens() + " max tokens · Keys stay encrypted on this device.", 10, mutedText);
         footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, dp(6), 0, dp(2));
-        page.addView(footer, new LinearLayout.LayoutParams(-1, dp(24)));
+        footer.setPadding(0, dp(7), 0, dp(3));
+        page.addView(footer, new LinearLayout.LayoutParams(-1, dp(28)));
         content.addView(page, new LinearLayout.LayoutParams(-1, -1));
     }
 
@@ -898,130 +838,37 @@ public class MainActivity extends Activity {
     private void addWelcome() {
         LinearLayout welcome = new LinearLayout(this);
         welcome.setOrientation(LinearLayout.VERTICAL);
-        welcome.setPadding(dp(6), dp(20), dp(6), dp(8));
-        welcome.setGravity(Gravity.CENTER_HORIZONTAL);
+        welcome.setPadding(dp(4), dp(28), dp(4), dp(12));
+        TextView eyebrow = text("KAIRO / READY WHEN YOU ARE", 11, lavender);
+        eyebrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        welcome.addView(eyebrow, wrap());
+        TextView title = text("What will you build today?", 30, primaryText);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setPadding(0, dp(9), 0, dp(7));
+        welcome.addView(title, wrap());
+        welcome.addView(text("A calm home for Claude-style conversations, coding plans, model experiments, and guarded agent tools.", 15, secondaryText), wrap());
 
-        String hourGreeting = greetingForNow();
-        TextView hello = text(hourGreeting, 28, primaryText);
-        hello.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        hello.setGravity(Gravity.CENTER);
-        // soft gradient feel via lavender tint on first word already in string
-        welcome.addView(hello, wrapParams());
-        TextView subtitle = text("What can I help you with today?", 15, secondaryText);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, dp(6), 0, dp(18));
-        welcome.addView(subtitle, wrapParams());
-
-        // Mode tiles: Code · Research · Think · Create
-        LinearLayout tiles = new LinearLayout(this);
-        tiles.setOrientation(LinearLayout.HORIZONTAL);
-        tiles.setGravity(Gravity.CENTER);
-        addHomeTile(tiles, "⟨/⟩", "Code", "Write, debug and improve code", lavender, v -> {
-            activeAgentId = "code";
-            if (composer != null) {
-                composer.setHint("Describe the code you want…");
-                composer.requestFocus();
-            }
-            toast("Code mode");
-        });
-        addHomeTile(tiles, "⌕", "Research", "Search the web and analyze", mint, v -> showWebSearch());
-        addHomeTile(tiles, "◉", "Think", "Deep reasoning and insights", amber, v -> {
-            preferences.setReasoningMode("deep");
-            refreshReasoningPills();
-            toast("Deep reasoning on");
-        });
-        addHomeTile(tiles, "✦", "Create", "Generate images, content and more", lavender, v -> showImageStudio());
-        welcome.addView(tiles, marginParams(0, 0, 0, 18));
-
-        TextView suggested = text("Suggested for you", 12, mutedText);
-        suggested.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        welcome.addView(suggested, marginParams(4, 4, 0, 8));
-
-        addSuggestionChip(welcome, "Explain quantum computing in simple terms",
-                "Explain quantum computing in simple terms for a curious beginner.");
-        addSuggestionChip(welcome, "Create a React dashboard template",
-                "Create a complete React dashboard template with TypeScript, clean layout, and sample data.");
-        addSuggestionChip(welcome, "Compare Llama 3.3 and Claude 3.5",
-                "Compare Llama 3.3 and Claude 3.5 for coding on a phone. Trade-offs, speed, and when to pick each.");
-        addSuggestionChip(welcome, "Help me plan a study schedule",
-                "Help me plan a realistic weekly study schedule with deep work blocks and review days.");
-        addSuggestionChip(welcome, "Build a Spring Boot REST API",
-                "How to create a REST API in Java using Spring Boot? Include controllers, DTOs, and a minimal service.");
-        addSuggestionChip(welcome, "Optimize a C++ hot path",
-                "Write a clear, safe C++ snippet for a performance-critical path with complexity notes.");
-
+        LinearLayout status = card();
+        status.setPadding(dp(14), dp(12), dp(14), dp(12));
+        TextView statusDot = text("●  ONLINE", 11, mint);
+        statusDot.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        status.addView(statusDot, wrap());
+        status.addView(text("Select a provider key in Settings, or start with a local Ollama model.", 12, secondaryText), marginParams(1, 5, 0, 0));
         if (!deviceSetup.isSetupComplete()) {
-            LinearLayout status = card();
-            status.setPadding(dp(14), dp(12), dp(14), dp(12));
-            status.addView(text("Finish device setup", 13, primaryText), wrap());
-            status.addView(text("Add an Experiential Labs key for GPT-6 Astra, or start local with Ollama.", 12, secondaryText), marginParams(0, 4, 0, 0));
-            status.addView(smallButton("Set up this device", lavender, view -> showDeviceSetup()), marginParams(0, 10, 0, 0));
-            welcome.addView(status, marginParams(0, 14, 0, 8));
+            status.addView(smallButton("Set up this device", lavender, view -> showDeviceSetup()), marginParams(0, 9, 0, 0));
         }
+        welcome.addView(status, marginParams(0, 22, 0, 12));
 
+        TextView promptLabel = text("TRY A STARTER", 11, mutedText);
+        promptLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        welcome.addView(promptLabel, marginParams(0, 10, 0, 8));
+        addStarter(welcome, "Explain a codebase", "Give me a concise map of the architecture and the best first task.");
+        addStarter(welcome, "Draft a PR plan", "Turn this feature idea into a safe, reviewable implementation plan.");
+        addStarter(welcome, "Compare free models", "Which free or local model should I use for coding on a phone?");
+        addStarter(welcome, "Build a TypeScript utility", "Create a complete, tested TypeScript module and explain how to run it.");
+        addStarter(welcome, "Design a Kotlin screen", "Create a production-ready Kotlin Android screen with state, accessibility, and error handling.");
+        addStarter(welcome, "Run a safe CLI check", "Show me the allowed diagnostics I can run before a change.");
         chatHistory.addView(welcome, new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    private String greetingForNow() {
-        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-        String name = deviceSetup != null ? deviceSetup.getDeviceName() : "there";
-        if (name == null || name.trim().isEmpty() || "Kairo device".equalsIgnoreCase(name)
-                || "Android".equalsIgnoreCase(name)) {
-            name = "there";
-        }
-        String when;
-        if (hour < 12) when = "Good morning";
-        else if (hour < 17) when = "Good afternoon";
-        else when = "Good evening";
-        return when + ", " + name;
-    }
-
-    private void addHomeTile(LinearLayout parent, String icon, String title, String blurb,
-                             int accent, View.OnClickListener listener) {
-        LinearLayout tile = new LinearLayout(this);
-        tile.setOrientation(LinearLayout.VERTICAL);
-        tile.setPadding(dp(10), dp(12), dp(10), dp(12));
-        tile.setBackground(rounded(raised, 16));
-        tile.setOnClickListener(listener);
-        TextView ic = text(icon, 16, accent);
-        ic.setGravity(Gravity.CENTER);
-        tile.addView(ic, wrapParams());
-        TextView t = text(title, 13, primaryText);
-        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(0, dp(8), 0, dp(2));
-        tile.addView(t, wrapParams());
-        TextView b = text(blurb, 10, mutedText);
-        b.setGravity(Gravity.CENTER);
-        b.setMaxLines(2);
-        tile.addView(b, wrapParams());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.setMargins(dp(3), 0, dp(3), 0);
-        parent.addView(tile, lp);
-    }
-
-    private void addSuggestionChip(LinearLayout parent, String label, String prompt) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(12), dp(12));
-        row.setBackground(stroked(border, 14));
-        TextView t = text(label, 13, primaryText);
-        t.setSingleLine(true);
-        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        row.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView arrow = text("→", 16, lavender);
-        arrow.setGravity(Gravity.CENTER);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(28), dp(28)));
-        row.setOnClickListener(view -> {
-            if (composer != null) {
-                composer.setText(prompt);
-                composer.setSelection(composer.length());
-                composer.requestFocus();
-                ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                        .showSoftInput(composer, InputMethodManager.SHOW_IMPLICIT);
-            }
-        });
-        parent.addView(row, marginParams(0, 0, 0, 8));
     }
 
     private void addStarter(LinearLayout parent, String title, String prompt) {
@@ -1066,16 +913,16 @@ public class MainActivity extends Activity {
             row.addView(identity, marginParams(0, 0, 0, 7));
         }
 
-        TextView bubble = text("", 15.5f, user ? Color.WHITE : primaryText);
+        TextView bubble = text("", 15.5f, primaryText);
         bubble.setText(user ? message : MarkdownRenderer.render(message));
         bubble.setTextIsSelectable(true);
         bubble.setLineSpacing(dp(3), 1.05f);
         if (user) {
-            bubble.setPadding(dp(16), dp(13), dp(16), dp(13));
-            bubble.setBackground(rounded(userBubble, 20));
+            bubble.setPadding(dp(16), dp(12), dp(16), dp(12));
+            bubble.setBackground(rounded(userBubble, 18));
         } else {
-            bubble.setPadding(dp(12), dp(10), dp(12), dp(10));
-            bubble.setBackground(rounded(assistantSoft, 16));
+            bubble.setPadding(dp(4), dp(2), dp(4), dp(2));
+            bubble.setBackground(rounded(Color.TRANSPARENT, 0));
         }
         bubble.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * (user ? 0.82f : 0.92f)));
         bubble.setOnLongClickListener(view -> {
@@ -1663,6 +1510,7 @@ public class MainActivity extends Activity {
     }
 
     private void showAiFeaturesPicker() {
+        // Claude + Groq style AI action menu
         String[] features = {
                 "✦  Improve writing",
                 "✦  Make more concise",
@@ -1673,9 +1521,6 @@ public class MainActivity extends Activity {
                 "🔒  Security & privacy review",
                 "↗  Convert to TypeScript",
                 "↗  Convert to Kotlin",
-                "↗  Convert to C++",
-                "↗  Convert to C",
-                "⚡  Optimize hot path (C++/ASM)",
                 "📄  Create a complete file",
                 "{ }  Extract structured JSON",
                 "☰  Summarize this conversation",
@@ -1692,10 +1537,7 @@ public class MainActivity extends Activity {
                 "Review the following code or plan for security, privacy, secret leakage, unsafe permissions, and injection risks:",
                 "Convert the following code or design to idiomatic TypeScript. Preserve behavior, add types, and mention assumptions:",
                 "Convert the following code or design to idiomatic Kotlin. Preserve behavior, use safe null handling, and mention assumptions:",
-                "Convert the following code or design to modern idiomatic C++ (C++17+). Prefer RAII, clear ownership, and note complexity:",
-                "Convert the following code or design to portable C11. Avoid undefined behavior, document ownership, and keep APIs simple:",
-                "Optimize the following for a measured hot path. Prefer clear C++ first, then optional assembly notes for one architecture. Report complexity and risks:",
-                "Create a complete production-ready file from the following requirements. Suggest a safe filename, language (JS/TS/Kotlin/Java/C++/C/Assembly/CSS when relevant), dependencies, and return the entire file in one fenced code block:",
+                "Create a complete production-ready file from the following requirements. Suggest a safe filename, language, dependencies, and return the entire file in one fenced code block:",
                 "Extract the useful facts from the following into valid JSON. Return JSON only and state a schema if the input is ambiguous:",
                 "Summarize this conversation with decisions, open questions, risks, and the next practical steps:",
                 "Compare two approaches for the following problem. Cover trade-offs, complexity, risk, and when to prefer each:",
@@ -1703,16 +1545,16 @@ public class MainActivity extends Activity {
         };
         new AlertDialog.Builder(this)
                 .setTitle("AI actions")
-                .setMessage("Clean shortcuts for GPT-6 Astra and polyglot coding. No external writes until you confirm a tool.")
+                .setMessage("Prompt shortcuts inspired by Claude & Groq. No external writes happen until you explicitly confirm a tool.")
                 .setItems(features, (dialog, which) -> {
                     if (composer == null) showChat();
                     if (composer == null) return;
-                    activeAgentId = (which == 12) ? "artifact"
-                            : ((which >= 3 && which <= 11) ? "code" : "chat");
+                    activeAgentId = (which == 9) ? "artifact"
+                            : ((which >= 3 && which <= 8) ? "code" : "chat");
                     if (modeButton != null) modeButton.setText(agentModeLabel());
                     String existing = composer.getText().toString().trim();
                     String prompt = prompts[which];
-                    if (!existing.isEmpty() && which != 14) prompt += "\n\nInput:\n" + existing;
+                    if (!existing.isEmpty() && which != 11) prompt += "\n\nInput:\n" + existing;
                     composer.setText(prompt.substring(0, Math.min(32_000, prompt.length())));
                     composer.setSelection(composer.length());
                     composer.requestFocus();
@@ -1724,63 +1566,45 @@ public class MainActivity extends Activity {
 
     private void showToolPicker() {
         String[] tools = {
-                "✦  AI actions menu (streaming prompts)",
-                "⚡  GPT-6 Astra · deep think",
-                "G  Groq fast mode",
-                "A  Claude / Anthropic models",
-                "⚔  Arena.ai dual-model stream",
                 "Code Agent  ·  plan and review",
                 "GitHub Agent  ·  pull, push, or PR",
-                "🖥  Ubuntu-style sandbox terminal",
-                "Research  ·  models & sources",
+                "CLI Agent  ·  safe diagnostics",
+                "Research Agent  ·  compare models",
                 "Web search  ·  live sources",
-                "📄  Create file (py/ts/java/kt/cpp/…)",
-                "🖼  Image studio  ·  make images",
-                "📷  Camera capture",
-                "🎙  Voice assistant",
+                "Create artifact  ·  save a file",
+                "Model arena  ·  compare two models",
                 "Connectors  ·  GitHub, Vercel, n8n",
-                "Safe phone  ·  visible actions",
-                "Hermes  ·  plan and hand off"
+                "Safe phone assistant  ·  visible actions",
+                "Hermes orchestrator  ·  plan and hand off"
         };
         new AlertDialog.Builder(this)
-                .setTitle("Tools & AI menus")
-                .setMessage("Streaming chat stays live. Deep mode asks GPT-6 Astra-style planning without exposing hidden chain-of-thought.")
+                .setTitle("Choose a focused tool")
                 .setItems(tools, (dialog, which) -> {
-                    if (which == 0) showAiFeaturesPicker();
-                    else if (which == 1) {
-                        ModelInfo astra = ModelCatalog.find("experiential", "gpt-6-astra");
-                        if (astra != null) {
-                            preferences.setModel(astra.getProviderId(), astra.getId());
-                            preferences.setReasoningMode("deep");
-                            if (modelChip != null) modelChip.setText(modelTitle());
-                            refreshReasoningPills();
-                            toast("GPT-6 Astra · Deep");
-                        } else toast("Astra not in catalog");
-                    } else if (which == 2) activateGroqFastMode();
-                    else if (which == 3) {
-                        modelFilter = "all";
+                    if (which == 1) {
+                        showGithubDialog();
+                    } else if (which == 2) {
+                        showSandbox();
+                    } else if (which == 3) {
                         showModels();
-                        toast("Pick Anthropic / Claude");
-                    } else if (which == 4) showArena();
-                    else if (which == 5) {
-                        if (composer != null) {
-                            activeAgentId = "code";
-                            if (modeButton != null) modeButton.setText(agentModeLabel());
-                            composer.setText("Start with a plan, list assumptions, and give patch-ready steps for: ");
-                            composer.setSelection(composer.length());
-                            composer.requestFocus();
-                        }
-                    } else if (which == 6) showGithubDialog();
-                    else if (which == 7) showSandbox();
-                    else if (which == 8) showModels();
-                    else if (which == 9) showWebSearch();
-                    else if (which == 10) showQuickCreateFile();
-                    else if (which == 11) showImageStudio();
-                    else if (which == 12) openCameraCapture();
-                    else if (which == 13) startVoiceInput();
-                    else if (which == 14) showConnectors();
-                    else if (which == 15) showPhoneControl();
-                    else if (which == 16) showHermesWorkflow();
+                    } else if (which == 4) {
+                        showWebSearch();
+                    } else if (which == 5) {
+                        showCreateArtifactDialog(null);
+                    } else if (which == 6) {
+                        showArena();
+                    } else if (which == 7) {
+                        showConnectors();
+                    } else if (which == 8) {
+                        showPhoneControl();
+                    } else if (which == 9) {
+                        showHermesWorkflow();
+                    } else if (composer != null) {
+                        activeAgentId = "code";
+                        if (modeButton != null) modeButton.setText(agentModeLabel());
+                        composer.setText("Start with a plan, list assumptions, and give patch-ready steps for: ");
+                        composer.setSelection(composer.length());
+                        composer.requestFocus();
+                    }
                 }).show();
     }
 
@@ -1981,8 +1805,7 @@ public class MainActivity extends Activity {
         }
         Intent voice = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         voice.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        voice.putExtra(RecognizerIntent.EXTRA_PROMPT, "Kairo assistant — try “new chat”, “deep mode”, “open arena”, or dictate a prompt");
-        voice.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+        voice.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Kairo");
         try {
             startActivityForResult(voice, VOICE_REQUEST);
         } catch (Exception exception) {
@@ -1991,121 +1814,26 @@ public class MainActivity extends Activity {
     }
 
     private void showModelPicker() {
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout sheet = new LinearLayout(this);
-        sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setPadding(dp(16), dp(8), dp(16), dp(16));
-        sheet.setBackgroundColor(surface);
-
-        TextView title = text("Select Model", 18, primaryText);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        sheet.addView(title, marginParams(0, 4, 0, 14));
-
-        sheet.addView(sectionLabel("KAIRO MODES"), marginParams(0, 0, 0, 8));
-        addModeRow(sheet, "⚡", "Fast", "Fastest responses", "fast");
-        addModeRow(sheet, "◎", "Balanced", "Best for most tasks", "balanced");
-        addModeRow(sheet, "◉", "Deep", "Stronger reasoning", "deep");
-
-        sheet.addView(sectionLabel("MODEL PROVIDERS"), marginParams(0, 16, 0, 8));
-        String[][] providers = {
-                {"experiential", "Experiential Labs", "GPT-6 Astra & promo free rows"},
-                {"groq", "Groq", "Ultra-fast inference"},
-                {"nvidia", "NVIDIA NIM", "Hosted open models"},
-                {"anthropic", "Anthropic", "Claude Messages API"},
-                {"openai", "OpenAI", "GPT chat models"},
-                {"openrouter", "OpenRouter", "Large multi-provider catalog"},
-                {"mistral", "Mistral AI", "Mistral & Codestral"},
-                {"moonshot", "Kimi", "Long-context reasoning"},
-                {"ollama", "Ollama", "Local models · no key"}
-        };
-        for (String[] p : providers) {
-            final String pid = p[0];
-            LinearLayout row = new LinearLayout(this);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(12), dp(12), dp(12), dp(12));
-            row.setBackground(rounded(raised, 14));
-            TextView mark = text(ProviderConfig.brandMark(pid), 12, Color.WHITE);
-            mark.setGravity(Gravity.CENTER);
-            mark.setBackground(circle(lavender));
-            row.addView(mark, new LinearLayout.LayoutParams(dp(32), dp(32)));
-            LinearLayout labels = new LinearLayout(this);
-            labels.setOrientation(LinearLayout.VERTICAL);
-            labels.setPadding(dp(12), 0, 0, 0);
-            TextView name = text(p[1], 14, primaryText);
-            name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            labels.addView(name, wrap());
-            labels.addView(text(p[2], 11, mutedText), wrap());
-            row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView chev = text("›", 20, mutedText);
-            row.addView(chev, wrap());
-            row.setOnClickListener(v -> {
-                List<ModelInfo> models = ModelCatalog.forProvider(pid);
-                if (models.isEmpty()) {
-                    toast("No curated models for " + p[1]);
-                    return;
-                }
-                String[] names = new String[models.size()];
-                for (int i = 0; i < models.size(); i++) {
-                    ModelInfo m = models.get(i);
-                    String badge = m.getId() != null && m.getId().contains("gpt-6-astra") ? "ASTRA · "
-                            : (m.isFreeRoute() ? "FREE · " : (m.isCandidate() ? "CAND · " : ""));
-                    names[i] = badge + m.getName() + "  ·  " + m.getContextWindow();
-                }
-                new AlertDialog.Builder(this)
-                        .setTitle(p[1])
-                        .setItems(names, (d, which) -> {
-                            ModelInfo model = models.get(which);
-                            preferences.setModel(model.getProviderId(), model.getId());
-                            if (modelChip != null) modelChip.setText(modelTitle());
-                            toast(model.getName() + " selected");
-                        })
-                        .show();
-            });
-            sheet.addView(row, marginParams(0, 0, 0, 8));
+        List<ModelInfo> models = ModelCatalog.all();
+        String[] labels = new String[models.size()];
+        for (int index = 0; index < labels.length; index++) {
+            ModelInfo model = models.get(index);
+            String badge = model.isCandidate() ? "CANDIDATE · " : (model.isFreeRoute() ? "FREE / TIER · " : "");
+            labels[index] = badge + model.getName()
+                    + "  ·  " + ProviderConfig.displayName(model.getProviderId());
         }
-
-        TextView manage = text("Manage Providers  →", 13, lavender);
-        manage.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        manage.setPadding(dp(4), dp(10), dp(4), dp(4));
-        manage.setOnClickListener(v -> showSettings());
-        sheet.addView(manage, wrap());
-
-        TextView browse = text("Browse full catalog  →", 13, secondaryText);
-        browse.setPadding(dp(4), dp(6), dp(4), dp(4));
-        browse.setOnClickListener(v -> showModels());
-        sheet.addView(browse, wrap());
-
-        scroll.addView(sheet);
-        new AlertDialog.Builder(this)
-                .setView(scroll)
-                .setNegativeButton("Close", null)
-                .show();
-    }
-
-    private void addModeRow(LinearLayout parent, String icon, String title, String blurb, String modeId) {
-        boolean selected = modeId.equals(preferences.getReasoningMode());
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(12), dp(12), dp(12));
-        row.setBackground(selected ? accentSoft(lavender) : rounded(raised, 14));
-        TextView ic = text(icon, 16, selected ? lavender : secondaryText);
-        row.addView(ic, new LinearLayout.LayoutParams(dp(28), -2));
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        TextView t = text(title, 14, primaryText);
-        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        labels.addView(t, wrap());
-        labels.addView(text(blurb, 11, mutedText), wrap());
-        row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView radio = text(selected ? "●" : "○", 16, selected ? lavender : mutedText);
-        row.addView(radio, wrap());
-        row.setOnClickListener(v -> {
-            preferences.setReasoningMode(modeId);
-            refreshReasoningPills();
-            toast(title + " mode");
-            // rebuild picker feel by closing is enough; user can reopen
-        });
-        parent.addView(row, marginParams(0, 0, 0, 8));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Choose a model")
+                .setItems(labels, (d, which) -> {
+                    ModelInfo model = models.get(which);
+                    preferences.setModel(model.getProviderId(), model.getId());
+                    if (modelChip != null) modelChip.setText(modelTitle());
+                    toast(model.getName() + " selected");
+                })
+                .setNegativeButton("Browse models", (d, which) -> showModels())
+                .setNeutralButton("Groq fast", (d, which) -> activateGroqFastMode())
+                .create();
+        dialog.show();
     }
 
     private void showSandbox() {
@@ -2113,39 +1841,14 @@ public class MainActivity extends Activity {
         setActiveTab(TAB_AGENTS);
         content.removeAllViews();
         LinearLayout page = page();
-        page.addView(pageHeader("Sandbox terminal", "Ubuntu-style diagnostics + private files — not a full Ubuntu VM."), wrapParams());
+        page.addView(pageHeader("Sandbox console", "Private on-phone workspace + safe diagnostics — not a full Ubuntu VM."), wrapParams());
 
         LinearLayout guardrail = card();
         guardrail.setPadding(dp(14), dp(13), dp(14), dp(13));
-        guardrail.addView(text("KAIRO · UBUNTU-STYLE TERMINAL", 10, mint), wrap());
-        guardrail.addView(text("Safe allow-list shell in the app process (pwd, ls, git, uname, runtime versions, /proc probes). Pipes, redirects, chaining, substitution, root, and package installs stay blocked.\n\nPrivate file create/zip lives under app storage (src/, tests/, out/, notes/, templates/, images/). Full Ubuntu/Docker is not bundled.", 12, secondaryText), marginParams(0, 6, 0, 0));
-        guardrail.addView(text("Try: help · sandbox-status · git status · uname -a · python3 --version", 10, mutedText), marginParams(0, 8, 0, 0));
+        guardrail.addView(text("ANDROID APP SANDBOX", 10, mint), wrap());
+        guardrail.addView(text("Commands run in Kairo's app process through a strict allow-list. Pipes, redirects, chaining, substitution, root, package installs, and arbitrary commands are blocked.\n\nFile create/zip uses this app's private phone storage only. A full Ubuntu environment is not included (huge image, security risk, store policy).", 12, secondaryText), marginParams(0, 6, 0, 0));
+        guardrail.addView(text("Allowed examples: " + joinExamples(), 10, mutedText), marginParams(0, 8, 0, 0));
         page.addView(guardrail, marginParams(0, 12, 0, 12));
-
-        // Quick terminal chips
-        HorizontalScrollView termChipsScroll = new HorizontalScrollView(this);
-        termChipsScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout termChips = new LinearLayout(this);
-        String[] quickCmds = {"help", "sandbox-status", "pwd", "ls -la", "uname -a", "git status", "python3 --version", "node --version", "java -version"};
-        for (int qi = 0; qi < quickCmds.length; qi++) {
-            final String qc = quickCmds[qi];
-            TextView chip = pill(qc, secondaryText, raised);
-            chip.setTextSize(11);
-            chip.setOnClickListener(v -> {
-                // Find command field later via tag? We inject into next command EditText by storing on page
-                View cmdView = page.findViewWithTag("sandbox_command_input");
-                if (cmdView instanceof EditText) {
-                    ((EditText) cmdView).setText(qc);
-                    ((EditText) cmdView).setSelection(qc.length());
-                }
-                toast("Loaded: " + qc);
-            });
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, dp(34));
-            if (qi > 0) clp.setMargins(dp(6), 0, 0, 0);
-            termChips.addView(chip, clp);
-        }
-        termChipsScroll.addView(termChips);
-        page.addView(termChipsScroll, marginParams(0, 0, 0, 10));
 
         LinearLayout runtimeCard = card();
         runtimeCard.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -2158,10 +1861,8 @@ public class MainActivity extends Activity {
 
         LinearLayout commandCard = card();
         commandCard.setPadding(dp(13), dp(12), dp(13), dp(12));
-        EditText command = input("kairo$ try: help · git status · uname -a", false);
+        EditText command = input("Try: git status", false);
         command.setSingleLine(true);
-        command.setTag("sandbox_command_input");
-        command.setTypeface(Typeface.MONOSPACE);
         commandCard.addView(command, wrapParams());
         TextView output = text("No command run yet.", 12, secondaryText);
         output.setTextIsSelectable(true);
@@ -2171,7 +1872,7 @@ public class MainActivity extends Activity {
         commandCard.addView(output, marginParams(0, 9, 0, 0));
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.END);
-        actions.addView(smallButton("Run terminal", mint, view -> {
+        actions.addView(smallButton("Run safe command", mint, view -> {
             String value = command.getText().toString().trim();
             if (!CliCommandPolicy.isAllowed(value)) {
                 output.setText("Blocked: " + CliCommandPolicy.rejectionReason(value));
@@ -2209,8 +1910,6 @@ public class MainActivity extends Activity {
         EditText fileBody = input("File contents…", false);
         fileBody.setSingleLine(false);
         fileBody.setMinLines(3);
-        fileCard.addView(smallButton("Templates · py ts java kt cpp c css md xml txt zip…", lavender,
-                view -> showQuickCreateFile()), marginParams(0, 8, 0, 0));
         fileCard.addView(fileName, marginParams(0, 8, 0, 0));
         fileCard.addView(fileBody, marginParams(0, 6, 0, 0));
         LinearLayout fileActions = new LinearLayout(this);
@@ -2808,20 +2507,19 @@ public class MainActivity extends Activity {
         TextView title = text("Models", 26, primaryText);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         titleWrap.addView(title, wrap());
-        titleWrap.addView(text("GPT-6 Astra, free promo routes, and every key in one calm catalog.", 12, secondaryText), wrap());
+        titleWrap.addView(text("Free routes, local models, and provider keys in one place.", 12, secondaryText), wrap());
         header.addView(titleWrap, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout headerActions = new LinearLayout(this);
         headerActions.setGravity(Gravity.CENTER_VERTICAL);
         headerActions.addView(smallButton("Refresh", lavender, view -> refreshModels()), wrap());
-        headerActions.addView(smallButton("Astra live", mint, view -> refreshExperientialModels()), marginWrapParams(6, 0, 0, 0));
-        headerActions.addView(smallButton("NVIDIA", secondaryText, view -> refreshNvidiaModels()), marginWrapParams(6, 0, 0, 0));
+        headerActions.addView(smallButton("NVIDIA live", mint, view -> refreshNvidiaModels()), marginWrapParams(6, 0, 0, 0));
         header.addView(headerActions, wrap());
         page.addView(header, new LinearLayout.LayoutParams(-1, dp(62)));
 
         LinearLayout catalogNote = card();
         catalogNote.setPadding(dp(13), dp(10), dp(13), dp(10));
-        catalogNote.addView(text("EXPERIENTIAL LABS  ·  GPT-6 ASTRA", 10, mint), wrap());
-        catalogNote.addView(text("Point Kairo at api.experientiallabs.ai/v1 with your Experiential API key for GPT-6 Astra and the live catalog. Promo/free labels change; live refresh is authoritative.", 11, secondaryText), marginParams(0, 5, 0, 0));
+        catalogNote.addView(text("NVIDIA CATALOG", 10, mint), wrap());
+        catalogNote.addView(text("NVIDIA and Kimi / Moonshot entries are candidate indexes. A saved provider key plus live refresh is required to know which IDs your account, region, credits, quota, and endpoint currently expose. No model is promised to be free; deep-thinking behavior remains model/provider dependent.", 11, secondaryText), marginParams(0, 5, 0, 0));
         page.addView(catalogNote, marginParams(0, 8, 0, 9));
 
         modelSearch = input("Search models or providers", false);
@@ -2831,8 +2529,8 @@ public class MainActivity extends Activity {
         filterScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout filters = new LinearLayout(this);
         filters.setPadding(0, 0, dp(4), 0);
-        String[] names = {"All", "Astra", "Free / tier", "Local", "NVIDIA"};
-        String[] values = {"all", "experiential", "free", "local", "nvidia"};
+        String[] names = {"All", "Free / tier", "Local", "NVIDIA"};
+        String[] values = {"all", "free", "local", "nvidia"};
         for (int index = 0; index < names.length; index++) {
             final String filter = values[index];
             TextView filterButton = smallButton(names[index], lavender, view -> {
@@ -2869,7 +2567,6 @@ public class MainActivity extends Activity {
             if ("free".equals(modelFilter) && !model.isFreeRoute()) continue;
             if ("local".equals(modelFilter) && !model.isLocal()) continue;
             if ("nvidia".equals(modelFilter) && !"nvidia".equals(model.getProviderId())) continue;
-            if ("experiential".equals(modelFilter) && !"experiential".equals(model.getProviderId())) continue;
             addModelCard(modelListContainer, model);
             count++;
         }
@@ -2892,12 +2589,8 @@ public class MainActivity extends Activity {
         top.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
         if (model.isCandidate()) {
             top.addView(pill("CANDIDATE", amber, soft), wrap());
-        } else if (model.getId() != null && model.getId().contains("gpt-6-astra")) {
-            top.addView(pill("ASTRA", mint, soft), wrap());
         } else if (model.isFreeRoute()) {
             top.addView(pill(model.isLocal() ? "LOCAL" : "FREE / TIER", model.isLocal() ? mint : lavender, soft), wrap());
-        } else if ("experiential".equals(model.getProviderId())) {
-            top.addView(pill("EXPLABS", lavender, soft), wrap());
         }
         item.addView(top, wrap());
         item.addView(text(ProviderConfig.displayName(model.getProviderId()) + "  ·  " + model.getContextWindow(), 11, lavender), marginParams(0, 6, 0, 3));
@@ -2924,34 +2617,6 @@ public class MainActivity extends Activity {
                     @Override
                     public void onError(String message) {
                         runOnUiThread(() -> toast("Catalog refresh: " + message));
-                    }
-                });
-    }
-
-    private void refreshExperientialModels() {
-        if (keyStore.get("experiential").isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Connect Experiential Labs first")
-                    .setMessage("Save an Experiential API key from platform.experientiallabs.ai → Settings → API Keys. Kairo routes OpenAI-compatible chat through api.experientiallabs.ai/v1 for GPT-6 Astra and the live catalog.")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Open Settings", (dialog, which) -> showSettings())
-                    .show();
-            return;
-        }
-        toast("Refreshing Experiential live catalog…");
-        ApiClient.discoverModels("experiential",
-                ProviderConfig.baseUrl("experiential", preferences),
-                keyStore.get("experiential"),
-                new ApiClient.ModelsCallback() {
-                    @Override public void onSuccess(List<ModelInfo> models) {
-                        ModelCatalog.replaceDiscovered("experiential", models);
-                        runOnUiThread(() -> {
-                            renderModelList();
-                            toast("Experiential exposed " + models.size() + " models to this key");
-                        });
-                    }
-                    @Override public void onError(String message) {
-                        runOnUiThread(() -> toast("Experiential catalog: " + message));
                     }
                 });
     }
@@ -3132,23 +2797,13 @@ public class MainActivity extends Activity {
         ensureArenaModels();
         content.removeAllViews();
         LinearLayout page = page();
-        LinearLayout arenaBrand = new LinearLayout(this);
-        arenaBrand.setOrientation(LinearLayout.VERTICAL);
-        arenaBrand.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView arenaTitle = text("⚔  KAIRO ARENA", 18, primaryText);
-        arenaTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        arenaTitle.setGravity(Gravity.CENTER);
-        arenaBrand.addView(arenaTitle, wrapParams());
-        TextView arenaSub = text("Compare two models side by side", 13, secondaryText);
-        arenaSub.setGravity(Gravity.CENTER);
-        arenaBrand.addView(arenaSub, marginParams(0, 4, 0, 0));
-        page.addView(arenaBrand, marginParams(0, 8, 0, 16));
+        page.addView(pageHeader("Arena", "Arena.ai-style live dual-model comparison"), wrapParams());
 
         LinearLayout intro = card();
         intro.setPadding(dp(16), dp(14), dp(16), dp(14));
         intro.addView(text("LIVE SIDE-BY-SIDE", 10, lavender), wrap());
-        intro.addView(text("Pick Model A and Model B → one prompt → both stream in parallel. Compare speed, reasoning, and style.", 13, secondaryText), marginParams(0, 7, 0, 0));
-        page.addView(intro, marginParams(0, 0, 0, 14));
+        intro.addView(text("Pick Model A and Model B → ask one prompt → both stream in parallel. Compare speed, reasoning, and style instantly.", 13, secondaryText), marginParams(0, 7, 0, 0));
+        page.addView(intro, marginParams(0, 12, 0, 14));
 
         arenaPrompt = input("Ask both models the same question…", false);
         arenaPrompt.setSingleLine(false);
@@ -3243,8 +2898,7 @@ public class MainActivity extends Activity {
 
     private void ensureArenaModels() {
         if (arenaLeftModel == null) {
-            arenaLeftModel = ModelCatalog.find("experiential", "gpt-6-astra");
-            if (arenaLeftModel == null) arenaLeftModel = ModelCatalog.find("openrouter", "deepseek/deepseek-r1:free");
+            arenaLeftModel = ModelCatalog.find("openrouter", "deepseek/deepseek-r1:free");
             if (arenaLeftModel == null) arenaLeftModel = ModelCatalog.all().get(0);
         }
         if (arenaRightModel == null) {
@@ -3389,10 +3043,8 @@ public class MainActivity extends Activity {
 
     private String setupChecks() {
         int connected = 0;
-        if (keyStore.hasKey("experiential") || keyStore.hasKey("openrouter") || keyStore.hasKey("groq")
-                || keyStore.hasKey("nvidia") || keyStore.hasKey("mistral")
-                || keyStore.hasKey("anthropic") || keyStore.hasKey("openai")
-                || keyStore.hasKey("moonshot")) connected++;
+        if (keyStore.hasKey("openrouter") || keyStore.hasKey("groq") || keyStore.hasKey("nvidia")
+                || keyStore.hasKey("mistral") || keyStore.hasKey("anthropic") || keyStore.hasKey("openai")) connected++;
         if (keyStore.hasKey("github")) connected++;
         if (keyStore.hasKey("vercel")) connected++;
         if (keyStore.hasKey("n8n") && !preferences.getN8nBaseUrl().isEmpty()) connected++;
@@ -3469,9 +3121,8 @@ public class MainActivity extends Activity {
     }
 
     private void showProviderLoginPicker() {
-        String[] providers = {"Experiential Labs", "OpenRouter", "Groq", "Kimi / Moonshot", "NVIDIA NIM", "Mistral AI", "Anthropic", "OpenAI", "GitHub", "Vercel", "n8n instance", "Slack", "Notion", "Linear", "Supabase", "Discord"};
+        String[] providers = {"OpenRouter", "Groq", "Kimi / Moonshot", "NVIDIA NIM", "Mistral AI", "Anthropic", "OpenAI", "GitHub", "Vercel", "n8n instance", "Slack", "Notion", "Linear", "Supabase", "Discord"};
         String[] urls = {
-                "https://platform.experientiallabs.ai/models",
                 "https://openrouter.ai/settings/keys",
                 "https://console.groq.com/keys",
                 "https://platform.moonshot.ai/console/api-keys",
@@ -4390,32 +4041,8 @@ public class MainActivity extends Activity {
             artifactSeedOverride = null;
             artifactNameOverride = null;
         }
-        TextView pickLang = smallButton("Language templates", lavender, v -> {
-            java.util.List<LanguagePreset> presets = LanguageCatalog.all();
-            String[] labels = new String[presets.size()];
-            for (int i = 0; i < presets.size(); i++) {
-                labels[i] = presets.get(i).getLabel() + "  ·  ." + presets.get(i).getExtension();
-            }
-            new AlertDialog.Builder(this)
-                    .setTitle("Language")
-                    .setItems(labels, (dd, w) -> {
-                        LanguagePreset preset = presets.get(w);
-                        language.setText(preset.getId());
-                        if (name.getText().toString().trim().isEmpty()
-                                || name.getText().toString().startsWith("main.")
-                                || name.getText().toString().startsWith("generated")) {
-                            name.setText("main." + preset.getExtension());
-                        }
-                        if (contents.getText().toString().trim().isEmpty()) {
-                            contents.setText(LanguageCatalog.starterTemplate(preset.getId()));
-                        }
-                        preferences.setLanguagePreset(preset.getId());
-                    })
-                    .show();
-        });
         panel.addView(name, marginParams(0, 0, 0, 8));
         panel.addView(language, marginParams(0, 0, 0, 8));
-        panel.addView(pickLang, marginParams(0, 0, 0, 8));
         panel.addView(contents, wrapParams());
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(source == null ? "Create artifact" : "Save as artifact")
@@ -4733,70 +4360,7 @@ public class MainActivity extends Activity {
         setActiveTab(TAB_SETTINGS);
         content.removeAllViews();
         LinearLayout page = page();
-        page.addView(pageHeader("Settings", "Account, models, generation, and privacy — keys stay encrypted on device."), wrapParams());
-        // AI / Models quick panel matching mockup
-        LinearLayout aiPanel = card();
-        aiPanel.setPadding(dp(14), dp(14), dp(14), dp(14));
-        TextView aiTitle = text("AI / Models", 16, primaryText);
-        aiTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        aiPanel.addView(aiTitle, wrap());
-        aiPanel.addView(text("Default mode", 11, mutedText), marginParams(0, 10, 0, 6));
-        LinearLayout modeRow = new LinearLayout(this);
-        String cur = preferences.getReasoningMode();
-        for (String[] m : new String[][]{{"fast","Fast"},{"balanced","Balanced"},{"deep","Deep"}}) {
-            boolean sel = m[0].equals(cur);
-            TextView chip = pill(m[1], sel ? Color.WHITE : secondaryText, sel ? lavender : soft);
-            chip.setOnClickListener(v -> {
-                preferences.setReasoningMode(m[0]);
-                refreshReasoningPills();
-                showSettings();
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1);
-            lp.setMargins(0, 0, dp(6), 0);
-            modeRow.addView(chip, lp);
-        }
-        aiPanel.addView(modeRow, wrapParams());
-        aiPanel.addView(text("Default model", 11, mutedText), marginParams(0, 12, 0, 6));
-        TextView defModel = pill(modelTitle(), primaryText, raised);
-        defModel.setOnClickListener(v -> showModelPicker());
-        aiPanel.addView(defModel, new LinearLayout.LayoutParams(-1, dp(40)));
-        aiPanel.addView(text("Temperature  " + String.format(java.util.Locale.US, "%.1f", preferences.getTemperature())
-                + "   ·   Max tokens  " + preferences.getMaxOutputTokens(), 11, secondaryText), marginParams(0, 12, 0, 0));
-        aiPanel.addView(smallButton("Tune generation", lavender, v -> showGenerationSettings()), marginParams(0, 10, 0, 0));
-        page.addView(aiPanel, marginParams(0, 8, 0, 4));
-
-        LinearLayout lookPanel = card();
-        lookPanel.setPadding(dp(14), dp(14), dp(14), dp(14));
-        TextView lookTitle = text("Appearance & voice", 16, primaryText);
-        lookTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        lookPanel.addView(lookTitle, wrap());
-        lookPanel.addView(text("Theme", 11, mutedText), marginParams(0, 10, 0, 6));
-        LinearLayout themeRow = new LinearLayout(this);
-        for (String[] tm : new String[][]{{"dark","Dark"},{"light","Light"},{"system","System"}}) {
-            boolean sel = tm[0].equals(preferences.getThemeMode());
-            TextView chip = pill(tm[1], sel ? Color.WHITE : secondaryText, sel ? lavender : soft);
-            final String modeId = tm[0];
-            chip.setOnClickListener(v -> {
-                preferences.setThemeMode(modeId);
-                recreate();
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1);
-            lp.setMargins(0, 0, dp(6), 0);
-            themeRow.addView(chip, lp);
-        }
-        lookPanel.addView(themeRow, wrapParams());
-        lookPanel.addView(text("Voice assistant", 11, mutedText), marginParams(0, 12, 0, 6));
-        lookPanel.addView(text(preferences.isVoiceContinuous()
-                ? "Continuous: dictate then auto-send"
-                : "Tap mic · say commands like “new chat”, “deep mode”, “open arena”", 12, secondaryText), wrap());
-        lookPanel.addView(smallButton(preferences.isVoiceContinuous() ? "Continuous on · tap to toggle" : "Continuous off · tap to toggle",
-                lavender, v -> {
-                    preferences.setVoiceContinuous(!preferences.isVoiceContinuous());
-                    toast(preferences.isVoiceContinuous() ? "Voice continuous on" : "Voice continuous off");
-                    showSettings();
-                }), marginParams(0, 10, 0, 0));
-        lookPanel.addView(smallButton("Test voice assistant", mint, v -> startVoiceInput()), marginParams(0, 8, 0, 0));
-        page.addView(lookPanel, marginParams(0, 8, 0, 4));
+        page.addView(pageHeader("Settings", "Connect providers without giving up control of your keys."), wrapParams());
         ScrollView scroll = new ScrollView(this);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -4808,8 +4372,7 @@ public class MainActivity extends Activity {
         addGenerationSettingsRow(body);
         addMemorySettingsRow(body);
         body.addView(sectionLabel("MODEL PROVIDERS"), marginParams(0, 18, 0, 7));
-        addProviderRow(body, "experiential", "Experiential Labs", "GPT-6 Astra, Claude Fable 5.1, Gemini 3.7 Flash, and promo free rows via api.experientiallabs.ai/v1.");
-        addProviderRow(body, "openrouter", "OpenRouter", "Large multi-provider catalog with free community routes.");
+        addProviderRow(body, "openrouter", "OpenRouter", "Best starting point for free routes and a large catalog.");
         addProviderRow(body, "groq", "Groq", "Fast OpenAI-compatible inference with a developer tier.");
         addProviderRow(body, "moonshot", "Kimi / Moonshot", "Kimi-style long-context and reasoning candidates through an OpenAI-compatible endpoint.");
         addProviderRow(body, "nvidia", "NVIDIA NIM", "Use an NVIDIA API key with hosted open models.");
@@ -4850,7 +4413,7 @@ public class MainActivity extends Activity {
         TextView title = text("One interface. Your providers.", 18, primaryText);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         intro.addView(title, wrap());
-        intro.addView(text("Start with Experiential Labs for GPT-6 Astra, use free promo rows when available, Groq for speed, or stay local with Ollama.", 13, secondaryText), marginParams(0, 6, 0, 0));
+        intro.addView(text("Start with a free route, use Groq for speed, add your NVIDIA key, or stay local with Ollama. The selected model is shown in Chat.", 13, secondaryText), marginParams(0, 6, 0, 0));
         intro.addView(text("Paste a recognizable provider key into Chat and Kairo detects it locally, pauses sending, and offers a one-tap review before secure save. The full secret is never shown back.", 11, mutedText), marginParams(0, 7, 0, 0));
         body.addView(intro, wrapParams());
     }
@@ -5363,9 +4926,9 @@ public class MainActivity extends Activity {
         TextView view = text(label, 12, color);
         view.setGravity(Gravity.CENTER);
         view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        view.setPadding(dp(14), 0, dp(14), 0);
-        view.setMinHeight(dp(38));
-        view.setBackground(stroked(border, 14));
+        view.setPadding(dp(13), 0, dp(13), 0);
+        view.setMinHeight(dp(37));
+        view.setBackground(stroked(border, 12));
         view.setOnClickListener(listener);
         return view;
     }
@@ -5382,13 +4945,13 @@ public class MainActivity extends Activity {
     /** Soft glass / elevated surface (blur-like on older APIs via translucency). */
     private GradientDrawable glassSurface() {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(preferences != null && preferences.isLightTheme(this)
+        d.setColor(preferences != null && preferences.isLightTheme()
                 ? Color.argb(230, 255, 255, 255)
                 : Color.argb(210, surface >> 16 & 0xFF, surface >> 8 & 0xFF, surface & 0xFF));
-        d.setCornerRadius(dp(18));
-        d.setStroke(dp(1), preferences != null && preferences.isLightTheme(this)
-                ? Color.argb(36, 0, 0, 0)
-                : Color.argb(40, 255, 255, 255));
+        d.setCornerRadius(dp(16));
+        d.setStroke(dp(1), preferences != null && preferences.isLightTheme()
+                ? Color.argb(40, 0, 0, 0)
+                : Color.argb(50, 255, 255, 255));
         return d;
     }
 
@@ -5447,23 +5010,16 @@ public class MainActivity extends Activity {
     private void showCommandPalette() {
         String[] items = {
                 "New conversation",
-                "Model arena (Arena.ai dual stream)",
-                "GPT-6 Astra · deep think",
-                "Groq fast mode",
+                "Model arena",
                 "Search artifacts",
-                "Create file template",
-                "Sandbox terminal",
-                "Image studio",
-                "Camera capture",
-                "Voice assistant",
                 "Project instructions",
-                "AI actions menu",
+                "AI actions",
                 "Export conversation (Markdown)",
                 "Safe phone control",
                 "Connectors",
                 "Memories",
                 "Settings",
-                "Cycle theme (dark/light/system)",
+                "Toggle theme",
                 "Toggle continuous voice",
                 "Export conversation (PDF)",
                 "Toggle app lock"
@@ -5474,40 +5030,26 @@ public class MainActivity extends Activity {
                     switch (which) {
                         case 0: startNewChat(); break;
                         case 1: showArena(); break;
-                        case 2: {
-                            ModelInfo astra = ModelCatalog.find("experiential", "gpt-6-astra");
-                            if (astra != null) {
-                                preferences.setModel(astra.getProviderId(), astra.getId());
-                                preferences.setReasoningMode("deep");
-                                if (modelChip != null) modelChip.setText(modelTitle());
-                                refreshReasoningPills();
-                                toast("GPT-6 Astra · Deep");
-                            }
+                        case 2: showArtifactSearch(); break;
+                        case 3: showProjectInstructionsEditor(); break;
+                        case 4: showAiFeaturesPicker(); break;
+                        case 5: exportConversationMarkdown(); break;
+                        case 6: showPhoneControl(); break;
+                        case 7: showConnectors(); break;
+                        case 8: showMemories(); break;
+                        case 9: showSettings(); break;
+                        case 10:
+                            preferences.setThemeMode(preferences.isLightTheme() ? "dark" : "light");
+                            recreate();
                             break;
-                        }
-                        case 3: activateGroqFastMode(); break;
-                        case 4: showArtifactSearch(); break;
-                        case 5: showQuickCreateFile(); break;
-                        case 6: showSandbox(); break;
-                        case 7: showImageStudio(); break;
-                        case 8: openCameraCapture(); break;
-                        case 9: startVoiceInput(); break;
-                        case 10: showProjectInstructionsEditor(); break;
-                        case 11: showAiFeaturesPicker(); break;
-                        case 12: exportConversationMarkdown(); break;
-                        case 13: showPhoneControl(); break;
-                        case 14: showConnectors(); break;
-                        case 15: showMemories(); break;
-                        case 16: showSettings(); break;
-                        case 17: cycleTheme(); break;
-                        case 18:
+                        case 11:
                             preferences.setVoiceContinuous(!preferences.isVoiceContinuous());
                             toast(preferences.isVoiceContinuous() ? "Continuous voice on" : "Continuous voice off");
                             break;
-                        case 19:
+                        case 12:
                             exportConversationPdf();
                             break;
-                        case 20:
+                        case 13:
                             preferences.setAppLockEnabled(!preferences.isAppLockEnabled());
                             sessionUnlocked = !preferences.isAppLockEnabled();
                             toast(preferences.isAppLockEnabled() ? "App lock enabled" : "App lock disabled");
@@ -6145,278 +5687,39 @@ public class MainActivity extends Activity {
         toast("Metadata only — raw keys never exported");
     }
 
-
-    private void cycleTheme() {
-        String cur = preferences.getThemeMode();
-        if ("dark".equals(cur)) preferences.setThemeMode("light");
-        else if ("light".equals(cur)) preferences.setThemeMode("system");
-        else preferences.setThemeMode("dark");
-        toast("Theme · " + preferences.themeModeLabel());
-        recreate();
-    }
-
-    private void showAddFilesMenu() {
-        String[] items = {
-                "📄  Attach text file",
-                "📁  Create artifact (JS/TS/Java/Kotlin/C++/…)",
-                "📝  Quick template file",
-                "📦  Zip sandbox files",
-                "📂  Open sandbox browser"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("Add files")
-                .setItems(items, (d, which) -> {
-                    if (which == 0) openTextPicker();
-                    else if (which == 1) showCreateArtifactDialog(null);
-                    else if (which == 2) showQuickCreateFile();
-                    else if (which == 3) zipSandboxNow();
-                    else showSandboxBrowser();
-                })
-                .show();
-    }
-
-    private void showImageMenu() {
-        String[] items = {
-                "🖼  Attach gallery image",
-                "📷  Capture with camera",
-                "✦  Generate image (Image studio)",
-                "📁  Open images sandbox folder"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("Images")
-                .setItems(items, (d, which) -> {
-                    if (which == 0) openImagePicker();
-                    else if (which == 1) openCameraCapture();
-                    else if (which == 2) showImageStudio();
-                    else {
-                        toast("Sandbox images/ folder is private app storage");
-                        showSandboxBrowser();
-                    }
-                })
-                .show();
-    }
-
-    private void openCameraCapture() {
-        Intent camera = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
-        try {
-            startActivityForResult(camera, CAMERA_CAPTURE_REQUEST);
-        } catch (Exception exception) {
-            toast("Camera is not available on this device");
-        }
-    }
-
-    private void attachCameraBitmap(Bitmap bitmap) {
-        if (bitmap == null) return;
-        if (pendingAttachments.size() >= 4) {
-            toast("Up to four images can be attached");
-            return;
-        }
-        try {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output);
-            if (output.size() > 3 * 1024 * 1024) {
-                toast("Camera image is too large (3 MB max)");
-                return;
-            }
-            pendingAttachments.add(new ChatAttachment(
-                    "camera-" + System.currentTimeMillis() + ".jpg",
-                    "image/jpeg",
-                    Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)));
-            refreshAttachmentStrip();
-            toast("Camera photo attached");
-        } catch (Exception exception) {
-            toast("Could not attach camera photo");
-        }
-    }
-
-    private void handleVoiceCommand(String spoken) {
-        if (spoken == null || spoken.trim().isEmpty()) return;
-        String raw = spoken.trim();
-        String lower = raw.toLowerCase(Locale.US);
-
-        // Assistant-style command routing
-        if (matchesAny(lower, "new chat", "start over", "clear chat")) {
-            startNewChat();
-            toast("New chat");
-            return;
-        }
-        if (matchesAny(lower, "open settings", "settings")) {
-            showSettings();
-            return;
-        }
-        if (matchesAny(lower, "open models", "show models", "model picker")) {
-            showModelPicker();
-            return;
-        }
-        if (matchesAny(lower, "open arena", "model arena", "compare models")) {
-            showArena();
-            return;
-        }
-        if (matchesAny(lower, "open sandbox", "terminal", "ubuntu")) {
-            showSandbox();
-            return;
-        }
-        if (matchesAny(lower, "open artifacts", "files", "create file")) {
-            if (lower.contains("create")) showQuickCreateFile();
-            else showArtifacts();
-            return;
-        }
-        if (matchesAny(lower, "image studio", "generate image", "make image")) {
-            showImageStudio();
-            return;
-        }
-        if (matchesAny(lower, "take photo", "open camera", "camera")) {
-            openCameraCapture();
-            return;
-        }
-        if (matchesAny(lower, "web search", "search the web")) {
-            showWebSearch();
-            return;
-        }
-        if (matchesAny(lower, "dark mode")) {
-            preferences.setThemeMode("dark");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "light mode")) {
-            preferences.setThemeMode("light");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "system theme", "system mode")) {
-            preferences.setThemeMode("system");
-            recreate();
-            return;
-        }
-        if (matchesAny(lower, "fast mode", "fast reasoning")) {
-            preferences.setReasoningMode("fast");
-            refreshReasoningPills();
-            toast("Fast reasoning");
-            return;
-        }
-        if (matchesAny(lower, "deep mode", "deep reasoning", "think hard")) {
-            preferences.setReasoningMode("deep");
-            refreshReasoningPills();
-            toast("Deep reasoning · GPT-6 Astra style");
-            return;
-        }
-        if (matchesAny(lower, "balanced mode")) {
-            preferences.setReasoningMode("balanced");
-            refreshReasoningPills();
-            toast("Balanced reasoning");
-            return;
-        }
-        if (matchesAny(lower, "use groq", "switch to groq")) {
-            activateGroqFastMode();
-            return;
-        }
-        if (matchesAny(lower, "use astra", "gpt 6", "gpt-6", "experiential")) {
-            ModelInfo astra = ModelCatalog.find("experiential", "gpt-6-astra");
-            if (astra != null) {
-                preferences.setModel(astra.getProviderId(), astra.getId());
-                if (modelChip != null) modelChip.setText(modelTitle());
-                toast("GPT-6 Astra selected");
-            } else toast("Astra model not in catalog");
-            return;
-        }
-        if (matchesAny(lower, "use claude", "anthropic")) {
-            showModels();
-            toast("Pick a Claude / Anthropic model");
-            return;
-        }
-        if (matchesAny(lower, "send", "go") && composer != null && composer.getText().length() > 0) {
-            sendMessage();
-            return;
-        }
-
-        // Default: dictate into composer, optionally auto-send when continuous
-        if (composer == null) showChat();
-        if (composer != null) {
-            String existing = composer.getText().toString();
-            composer.setText(existing + (existing.isEmpty() ? "" : " ") + raw);
-            composer.setSelection(composer.length());
-            toast("Voice captured");
-            if (preferences.isVoiceContinuous() && !awaitingResponse) {
-                sendMessage();
-            }
-        }
-    }
-
-    private boolean matchesAny(String lower, String... phrases) {
-        for (String p : phrases) {
-            if (lower.equals(p) || lower.startsWith(p + " ") || lower.contains(" " + p)
-                    || lower.contains(p)) return true;
-        }
-        return false;
-    }
-
-    private void showQuickCreateFile() {
-        final java.util.List<LanguagePreset> presets = LanguageCatalog.all();
-        String[] labels = new String[presets.size()];
-        for (int i = 0; i < presets.size(); i++) {
-            LanguagePreset p = presets.get(i);
-            labels[i] = p.getLabel() + "  ·  ." + p.getExtension();
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Create file template")
-                .setItems(labels, (d, which) -> {
-                    LanguagePreset preset = presets.get(which);
-                    if ("zip".equals(preset.getId())) {
-                        zipSandboxNow();
-                        return;
-                    }
-                    preferences.setLanguagePreset(preset.getId());
-                    artifactNameOverride = "main." + preset.getExtension();
-                    artifactSeedOverride = LanguageCatalog.starterTemplate(preset.getId());
-                    showCreateArtifactDialog(null);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void zipSandboxNow() {
-        try {
-            com.kairo.app.core.SandboxWorkspace sandbox = new com.kairo.app.core.SandboxWorkspace(this);
-            java.io.File z = sandbox.zipAll("bundle-" + System.currentTimeMillis() + ".zip");
-            toast("Zipped → " + z.getName());
-            showSandbox();
-        } catch (Exception exception) {
-            toast(exception.getMessage() == null ? "Zip failed" : exception.getMessage());
-        }
-    }
-
     private void applyThemeColors() {
-        if (preferences != null && preferences.isLightTheme(this)) {
-            background = Color.rgb(246, 247, 250);
+        if (preferences != null && preferences.isLightTheme()) {
+            // Light theme – clean Claude/Groq inspired
+            background = Color.rgb(250, 249, 247);
             surface = Color.rgb(255, 255, 255);
-            raised = Color.rgb(255, 255, 255);
-            soft = Color.rgb(236, 238, 244);
-            border = Color.rgb(220, 224, 234);
-            primaryText = Color.rgb(18, 20, 28);
-            secondaryText = Color.rgb(84, 90, 108);
-            mutedText = Color.rgb(126, 132, 150);
-            lavender = Color.rgb(99, 86, 230);
-            mint = Color.rgb(16, 160, 130);
-            amber = Color.rgb(190, 130, 30);
-            red = Color.rgb(200, 70, 80);
-            userBubble = Color.rgb(91, 75, 219);
-            assistantSoft = Color.rgb(242, 243, 248);
+            raised = Color.rgb(244, 243, 240);
+            soft = Color.rgb(238, 236, 232);
+            border = Color.rgb(222, 220, 214);
+            primaryText = Color.rgb(28, 28, 30);
+            secondaryText = Color.rgb(90, 92, 100);
+            mutedText = Color.rgb(130, 132, 140);
+            lavender = Color.rgb(110, 90, 210);
+            mint = Color.rgb(30, 150, 120);
+            amber = Color.rgb(180, 130, 40);
+            red = Color.rgb(200, 70, 70);
+            userBubble = Color.rgb(230, 224, 255);
+            assistantSoft = Color.rgb(245, 244, 242);
         } else {
-            // Premium mockup dark — deep ink + violet
-            background = Color.rgb(7, 8, 12);
-            surface = Color.rgb(14, 16, 22);
-            raised = Color.rgb(21, 24, 34);
-            soft = Color.rgb(28, 32, 48);
-            border = Color.rgb(38, 43, 58);
-            primaryText = Color.rgb(244, 245, 250);
-            secondaryText = Color.rgb(154, 160, 180);
-            mutedText = Color.rgb(95, 102, 122);
-            lavender = Color.rgb(139, 124, 255);
-            mint = Color.rgb(94, 228, 181);
-            amber = Color.rgb(240, 195, 106);
-            red = Color.rgb(255, 138, 138);
-            userBubble = Color.rgb(91, 75, 219);
-            assistantSoft = Color.rgb(18, 21, 30);
+            // Dark theme (default)
+            background = Color.rgb(13, 14, 17);
+            surface = Color.rgb(21, 23, 28);
+            raised = Color.rgb(28, 31, 38);
+            soft = Color.rgb(35, 38, 47);
+            border = Color.rgb(46, 50, 60);
+            primaryText = Color.rgb(244, 243, 239);
+            secondaryText = Color.rgb(163, 165, 175);
+            mutedText = Color.rgb(107, 110, 121);
+            lavender = Color.rgb(201, 187, 255);
+            mint = Color.rgb(143, 223, 192);
+            amber = Color.rgb(230, 192, 122);
+            red = Color.rgb(240, 138, 138);
+            userBubble = Color.rgb(58, 49, 88);
+            assistantSoft = Color.rgb(24, 27, 34);
         }
     }
 
@@ -6430,8 +5733,8 @@ public class MainActivity extends Activity {
         for (int i = 0; i < ids.length; i++) {
             final String id = ids[i];
             boolean selected = id.equals(current);
-            int fg = selected ? Color.WHITE : secondaryText;
-            int bg = selected ? lavender : raised;
+            int fg = selected ? (preferences.isLightTheme() ? Color.WHITE : background) : secondaryText;
+            int bg = selected ? lavender : (preferences.isLightTheme() ? soft : raised);
             TextView pillView = pill(labels[i], fg, bg);
             pillView.setTextSize(11);
             pillView.setPadding(dp(12), dp(6), dp(12), dp(6));
@@ -6447,16 +5750,11 @@ public class MainActivity extends Activity {
         // Spacer + quick theme toggle
         View spacer = new View(this);
         reasoningPillsRow.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
-        TextView themeToggle = pill(preferences.themeModeLabel(), mutedText, soft);
+        TextView themeToggle = pill(preferences.isLightTheme() ? "Dark" : "Light", mutedText, soft);
         themeToggle.setTextSize(10);
-        themeToggle.setContentDescription("Cycle theme: dark, light, system");
         themeToggle.setOnClickListener(v -> {
-            String cur = preferences.getThemeMode();
-            if ("dark".equals(cur)) preferences.setThemeMode("light");
-            else if ("light".equals(cur)) preferences.setThemeMode("system");
-            else preferences.setThemeMode("dark");
-            toast("Theme · " + preferences.themeModeLabel());
-            recreate();
+            preferences.setThemeMode(preferences.isLightTheme() ? "dark" : "light");
+            recreate(); // full refresh for theme
         });
         reasoningPillsRow.addView(themeToggle, wrap());
     }
@@ -6483,7 +5781,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < suggestions.length; i++) {
             final String prompt = suggestions[i];
             TextView chip = pill(prompt.length() > 28 ? prompt.substring(0, 26) + "…" : prompt,
-                    secondaryText, preferences.isLightTheme(this) ? soft : raised);
+                    secondaryText, preferences.isLightTheme() ? soft : raised);
             chip.setTextSize(11);
             chip.setPadding(dp(12), dp(8), dp(12), dp(8));
             chip.setMaxLines(1);

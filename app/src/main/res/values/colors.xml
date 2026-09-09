@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Premium mockup palette — deep ink + violet glow -->
-    <color name="kairo_background">#07080C</color>
-    <color name="kairo_surface">#0E1016</color>
-    <color name="kairo_surface_raised">#151822</color>
-    <color name="kairo_surface_soft">#1C2030</color>
-    <color name="kairo_border">#262B3A</color>
+    <!-- Deep, calm Claude-inspired dark base -->
+    <color name="kairo_background">#0D0E11</color>
+    <color name="kairo_surface">#15171C</color>
+    <color name="kairo_surface_raised">#1C1F26</color>
+    <color name="kairo_surface_soft">#23262F</color>
+    <color name="kairo_border">#2E323C</color>
 
-    <color name="kairo_text">#F4F5FA</color>
-    <color name="kairo_text_secondary">#9AA0B4</color>
-    <color name="kairo_text_muted">#5F667A</color>
+    <!-- Text hierarchy -->
+    <color name="kairo_text">#F4F3EF</color>
+    <color name="kairo_text_secondary">#A3A5AF</color>
+    <color name="kairo_text_muted">#6B6E79</color>
 
-    <color name="kairo_lavender">#8B7CFF</color>
-    <color name="kairo_lavender_dark">#6A5AE8</color>
-    <color name="kairo_lavender_soft">#1A1630</color>
-    <color name="kairo_mint">#5EE4B5</color>
-    <color name="kairo_amber">#F0C36A</color>
-    <color name="kairo_red">#FF8A8A</color>
-    <color name="kairo_user_bubble">#5B4BDB</color>
-    <color name="kairo_assistant_soft">#12151E</color>
-    <color name="kairo_astra">#6EE7FF</color>
-    <color name="kairo_sidebar">#0A0C12</color>
+    <!-- Accents – soft lavender (Claude-like) + supporting -->
+    <color name="kairo_lavender">#C9BBFF</color>
+    <color name="kairo_lavender_dark">#8F7CE8</color>
+    <color name="kairo_lavender_soft">#2A2438</color>
+    <color name="kairo_mint">#8FDFC0</color>
+    <color name="kairo_amber">#E6C07A</color>
+    <color name="kairo_red">#F08A8A</color>
+    <color name="kairo_user_bubble">#3A3158</color>
+    <color name="kairo_assistant_soft">#181B22</color>
 </resources>

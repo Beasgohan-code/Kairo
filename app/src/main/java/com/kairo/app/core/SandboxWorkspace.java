@@ -33,8 +33,6 @@ public final class SandboxWorkspace {
         ensureDir(new File(root, "tests"));
         ensureDir(new File(root, "out"));
         ensureDir(new File(root, "notes"));
-        ensureDir(new File(root, "templates"));
-        ensureDir(new File(root, "images"));
     }
 
     public File getRoot() {

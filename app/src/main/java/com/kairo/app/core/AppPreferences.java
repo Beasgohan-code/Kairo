@@ -30,7 +30,7 @@ public final class AppPreferences {
     private static final String KEY_MAX_OUTPUT_TOKENS = "generation_max_output_tokens";
     private static final String KEY_RESPONSE_STYLE = "generation_response_style";
     private static final String KEY_REASONING_MODE = "generation_reasoning_mode";
-    private static final String KEY_THEME_MODE = "ui_theme_mode"; // "dark" | "light" | "system"
+    private static final String KEY_THEME_MODE = "ui_theme_mode"; // "dark" | "light"
     private static final String KEY_SYSTEM_INSTRUCTIONS = "system_project_instructions";
     private static final String KEY_VOICE_CONTINUOUS = "voice_continuous_mode";
     private static final String KEY_APP_LOCK = "security_app_lock_enabled";
@@ -47,11 +47,11 @@ public final class AppPreferences {
     }
 
     public String getProvider() {
-        return preferences.getString(KEY_PROVIDER, "experiential");
+        return preferences.getString(KEY_PROVIDER, "openrouter");
     }
 
     public String getModel() {
-        return preferences.getString(KEY_MODEL, "gpt-6-astra");
+        return preferences.getString(KEY_MODEL, "deepseek/deepseek-r1:free");
     }
 
     public void setModel(String provider, String model) {
@@ -225,33 +225,13 @@ public final class AppPreferences {
         return preferences.getString(KEY_THEME_MODE, "dark");
     }
 
-    /** Resolved light appearance (system follows Configuration.UI_MODE_NIGHT). */
     public boolean isLightTheme() {
-        return isLightTheme(null);
-    }
-
-    public boolean isLightTheme(android.content.Context context) {
-        String mode = getThemeMode();
-        if ("light".equals(mode)) return true;
-        if ("dark".equals(mode)) return false;
-        // system
-        if (context == null) return false;
-        int night = context.getResources().getConfiguration().uiMode
-                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-        return night != android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        return "light".equals(getThemeMode());
     }
 
     public void setThemeMode(String themeMode) {
-        String raw = themeMode == null ? "dark" : themeMode.trim().toLowerCase(java.util.Locale.US);
-        String value = "light".equals(raw) || "system".equals(raw) ? raw : "dark";
+        String value = "light".equalsIgnoreCase(themeMode) ? "light" : "dark";
         preferences.edit().putString(KEY_THEME_MODE, value).apply();
-    }
-
-    public String themeModeLabel() {
-        String mode = getThemeMode();
-        if ("light".equals(mode)) return "Light";
-        if ("system".equals(mode)) return "System";
-        return "Dark";
     }
 
 
